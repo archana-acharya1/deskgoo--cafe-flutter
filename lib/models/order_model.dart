@@ -17,7 +17,7 @@ class OrderItemModel {
   });
 
   double get lineTotal => price * quantity;
-  double get total => lineTotal; // needed for invoice
+  double get total => lineTotal;
 
   factory OrderItemModel.fromJson(Map<String, dynamic> json) {
     return OrderItemModel(
@@ -40,7 +40,7 @@ class OrderItemModel {
 
 @immutable
 class OrderModel {
-  final String id; // unique order id
+  final String id;
   final String tableName;
   final String area;
   final List<OrderItemModel> items;
@@ -55,6 +55,7 @@ class OrderModel {
   final double discountAmount;
   final double finalAmount;
   final String restaurantName;
+  final String paymentMethod; // NEW FIELD
 
   const OrderModel({
     required this.id,
@@ -72,6 +73,7 @@ class OrderModel {
     this.discountAmount = 0.0,
     this.finalAmount = 0.0,
     required this.restaurantName,
+    this.paymentMethod = 'Cash', // default
   });
 
   double get totalAmount => items.fold(0.0, (sum, it) => sum + it.lineTotal);
@@ -113,6 +115,7 @@ class OrderModel {
       discountAmount: (json['discountAmount'] ?? 0).toDouble(),
       finalAmount: (json['finalAmount'] ?? 0).toDouble(),
       restaurantName: json['restaurantName']?.toString() ?? 'Deskgoo Cafe',
+      paymentMethod: json['paymentMethod']?.toString() ?? 'Cash',
     );
   }
 
@@ -132,5 +135,6 @@ class OrderModel {
     'discountAmount': discountAmount,
     'finalAmount': finalAmount,
     'restaurantName': restaurantName,
+    'paymentMethod': paymentMethod,
   };
 }

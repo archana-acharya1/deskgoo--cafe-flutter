@@ -129,22 +129,270 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     if (mounted) ref.refresh(ordersProvider);
   }
 
+  /// Shows dialog to select payment method.
+  /// Returns a Map shaped like your backend paymentMethod schema or null on cancel.
+  Future<Map<String, dynamic>?> _selectPaymentMethodDialog(
+      Map<String, dynamic> order,
+      ) async {
+    String? method = 'cash'; // default
+    String? othersCombo; // cash-card, cash-online, card-online
+    final TextEditingController splitAController = TextEditingController();
+    final TextEditingController splitBController = TextEditingController();
+
+    // Pre-fill amounts: use finalAmount if present else totalAmount
+    final double orderAmount = (order['finalAmount'] is num)
+        ? (order['finalAmount'] as num).toDouble()
+        : ((order['totalAmount'] is num) ? (order['totalAmount'] as num).toDouble() : 0.0);
+
+    // helper to show validation error
+    void showErr(String msg) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (context, setState) {
+          Widget othersSplitWidget() {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Choose split type:', style: TextStyle(fontWeight: FontWeight.w600))),
+                RadioListTile<String>(
+                  title: const Text('Cash + Card'),
+                  value: 'cash-card',
+                  groupValue: othersCombo,
+                  onChanged: (v) => setState(() => othersCombo = v),
+                ),
+                RadioListTile<String>(
+                  title: const Text('Cash + Online'),
+                  value: 'cash-online',
+                  groupValue: othersCombo,
+                  onChanged: (v) => setState(() => othersCombo = v),
+                ),
+                RadioListTile<String>(
+                  title: const Text('Card + Online'),
+                  value: 'card-online',
+                  groupValue: othersCombo,
+                  onChanged: (v) => setState(() => othersCombo = v),
+                ),
+                const SizedBox(height: 8),
+                if (othersCombo != null)
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: splitAController,
+                              keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                              decoration: InputDecoration(
+                                labelText: othersCombo == 'cash-card'
+                                    ? 'Cash amount'
+                                    : othersCombo == 'cash-online'
+                                    ? 'Cash amount'
+                                    : 'Card amount',
+                                hintText: orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: splitBController,
+                              keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                              decoration: InputDecoration(
+                                labelText: othersCombo == 'cash-card'
+                                    ? 'Card amount'
+                                    : othersCombo == 'cash-online'
+                                    ? 'Online amount'
+                                    : 'Online amount',
+                                hintText: orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Total should equal order amount: Rs ${orderAmount.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Select Payment Method'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<String>(
+                    title: const Text('Cash'),
+                    value: 'cash',
+                    groupValue: method,
+                    onChanged: (v) => setState(() => method = v),
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('Card'),
+                    value: 'card',
+                    groupValue: method,
+                    onChanged: (v) => setState(() => method = v),
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('Online'),
+                    value: 'online',
+                    groupValue: method,
+                    onChanged: (v) => setState(() => method = v),
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('Others (Split Payments)'),
+                    value: 'others',
+                    groupValue: method,
+                    onChanged: (v) => setState(() {
+                      method = v;
+                      othersCombo = othersCombo ?? 'cash-card';
+                    }),
+                  ),
+                  if (method == 'others') othersSplitWidget(),
+                  const SizedBox(height: 6),
+                  // optional: allow marking as Credit
+                  CheckboxListTile(
+                    value: method == 'credit',
+                    onChanged: (val) {
+                      if (val == true) {
+                        setState(() {
+                          method = 'credit';
+                        });
+                      } else {
+                        setState(() {
+                          method = 'cash';
+                        });
+                      }
+                    },
+                    title: const Text('Mark as Credit (customer will pay later)'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx, null);
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  // validation + prepare payload
+                  if (method == null) {
+                    showErr('Select a payment method');
+                    return;
+                  }
+
+                  final split = {'cash': 0.0, 'card': 0.0, 'online': 0.0};
+                  String? othersField;
+                  if (method == 'others') {
+                    if (othersCombo == null) {
+                      showErr('Select a split type for Others');
+                      return;
+                    }
+                    final a = double.tryParse(splitAController.text.trim()) ?? 0.0;
+                    final b = double.tryParse(splitBController.text.trim()) ?? 0.0;
+                    if (a <= 0 && b <= 0) {
+                      showErr('Enter amounts for both split fields');
+                      return;
+                    }
+                    final total = a + b;
+                    if ((orderAmount > 0) && (total - orderAmount).abs() > 0.01) {
+                      showErr('Split total (${total.toStringAsFixed(2)}) must equal order amount (${orderAmount.toStringAsFixed(2)})');
+                      return;
+                    }
+                    // assign to split based on combo
+                    if (othersCombo == 'cash-card') {
+                      split['cash'] = a;
+                      split['card'] = b;
+                    } else if (othersCombo == 'cash-online') {
+                      split['cash'] = a;
+                      split['online'] = b;
+                    } else if (othersCombo == 'card-online') {
+                      split['card'] = a;
+                      split['online'] = b;
+                    }
+                    othersField = othersCombo;
+                  } else if (method == 'credit') {
+                    // credit: no split amounts
+                    // leave split as zeros
+                  } else {
+                    // single method: give full amount to that method
+                    final amt = orderAmount;
+                    if (method == 'cash') split['cash'] = amt;
+                    if (method == 'card') split['card'] = amt;
+                    if (method == 'online') split['online'] = amt;
+                  }
+
+                  final payload = {
+                    'method': method,
+                    'split': {
+                      'cash': (split['cash'] ?? 0.0).toDouble(),
+                      'card': (split['card'] ?? 0.0).toDouble(),
+                      'online': (split['online'] ?? 0.0).toDouble(),
+                    },
+                    'others': othersField,
+                  };
+
+                  Navigator.pop(ctx, payload);
+                },
+                child: const Text('Continue'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
   Future<void> _checkoutOrder(Map<String, dynamic> order) async {
     final id = (order['_id'] ?? '').toString();
     if (id.isEmpty) return;
+
+    // 1) Ask payment method (supports split)
+    final paymentMethod = await _selectPaymentMethodDialog(order);
+    if (paymentMethod == null) return;
+
+    // Determine paymentStatus: if user explicitly chose 'credit' mark Credit; else Paid
+    String paymentStatus = 'Paid';
+    if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
+      paymentStatus = 'Credit';
+    }
 
     try {
       final r = await http.patch(
         Uri.parse('${AppConfig.apiBase}/orders/$id/checkout'),
         headers: _headers(),
-        body: jsonEncode({"force": true}),
+        body: jsonEncode({
+          "force": true,
+          "paymentMethod": paymentMethod,
+          "paymentStatus": paymentStatus,
+        }),
       );
       if (r.statusCode ~/ 100 != 2) {
         throw Exception(_serverMsg('Checkout failed', r.statusCode, r.body));
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Checked out')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Checked out via ${paymentMethod['method']}')),
+      );
       ref.refresh(ordersProvider);
     } catch (e) {
       if (!mounted) return;
@@ -311,152 +559,177 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+          Text('$table • $area',
+              style: const TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('$table • $area',
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_selectMode)
-                    Checkbox(
-                      value: selected,
-                      onChanged: (_) => _toggleSelected(id),
-                    )
-                  else
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: chipColor.withOpacity(.1),
-                      child: Icon(Icons.receipt_long,
-                          color: chipColor, size: 24),
-                    ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.withOpacity(.08),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                  color: Colors.blueGrey.withOpacity(.25)),
-                            ),
-                            child: Text(orderNoText,
-                                style: const TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w700)),
+              if (_selectMode)
+                Checkbox(
+                  value: selected,
+                  onChanged: (_) => _toggleSelected(id),
+                )
+              else
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: chipColor.withOpacity(.1),
+                  child: Icon(Icons.receipt_long,
+                      color: chipColor, size: 24),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.withOpacity(.08),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                              color: Colors.blueGrey.withOpacity(.25)),
+                        ),
+                        child: Text(orderNoText,
+                            style: const TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w700)),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: chipColor.withOpacity(.08),
+                          borderRadius: BorderRadius.circular(999),
+                          border:
+                          Border.all(color: chipColor.withOpacity(.25)),
+                        ),
+                        child: Text(status,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: chipColor)),
+                      ),
+                      if (isCheckedOut) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(.08),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                                color: Colors.green.withOpacity(.25)),
                           ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: chipColor.withOpacity(.08),
-                              borderRadius: BorderRadius.circular(999),
-                              border:
-                              Border.all(color: chipColor.withOpacity(.25)),
-                            ),
-                            child: Text(status,
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: chipColor)),
-                          ),
-                          if (isCheckedOut) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(.08),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                    color: Colors.green.withOpacity(.25)),
-                              ),
-                              child: const Text('Checked out',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.green)),
-                            ),
-                          ],
-                        ]),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 13, color: Colors.brown.shade800),
+                          child: const Text('Checked out',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.green)),
                         ),
                       ],
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13, color: Colors.brown.shade800),
                     ),
-                  ),
-                  if (!_selectMode)
-                    PopupMenuButton<String>(
-                      onSelected: (v) async {
-                        if (v == 'edit') {
-                          if (isCheckedOut) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'This order is already checked out and can’t be edited.')));
-                            return;
-                          }
-                          final changed = await Navigator.push<bool>(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    OrderScreen(isEdit: true, order: o)),
-                          );
-                          if (changed == true && mounted)
-                            ref.refresh(ordersProvider);
-                        }
-                        if (v == 'print') await _printOrder(o);
-                        if (v == 'checkout') await _checkoutOrder(o);
-                        if (v == 'mark_paid') {
-                          await _markPaid(o);
-                          if (mounted) ref.refresh(ordersProvider);
-                        }
-                        if (v == 'delete') {
-                          try {
-                            await _deleteOrder(id);
-                            if (mounted) ref.refresh(ordersProvider);
-                          } catch (e) {
-                            if (mounted)
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Delete failed: $e')));
-                          }
-                        }
-                      },
-                      itemBuilder: (_) {
-                        final items = <PopupMenuEntry<String>>[
-                          const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          const PopupMenuItem(value: 'print', child: Text('Print')),
-                        ];
-                        if (!isCheckedOut)
-                          items.add(
-                              const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
-                        if (_canManage && status != 'Paid' && !isCheckedOut)
-                          items.add(const PopupMenuItem(
-                              value: 'mark_paid', child: Text('Mark Paid')));
-                        if (_canManage)
-                          items.add(const PopupMenuItem(
-                              value: 'delete', child: Text('Delete')));
-                        return items;
-                      },
-                    ),
-                ],
+                  ],
+                ),
               ),
+              if (!_selectMode)
+                PopupMenuButton<String>(
+                  onSelected: (v) async {
+                    if (v == 'set_payment') {
+                      // Set payment (same as checkout flow but only sets payment method)
+                      final pm = await _selectPaymentMethodDialog(o);
+                      if (pm == null) return;
+                      // apply it with a backend update (not checkout) to keep order updated
+                      final id = (o['_id'] ?? '').toString();
+                      try {
+                        final r = await http.put(
+                          Uri.parse('${AppConfig.apiBase}/orders/$id'),
+                          headers: _headers(),
+                          body: jsonEncode({
+                            'paymentMethod': pm,
+                            // if single method and not credit mark paymentStatus=Paid; if credit, mark Credit
+                            'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
+                          }),
+                        );
+                        if (r.statusCode ~/ 100 != 2) {
+                          throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
+                        }
+                        if (mounted) {
+                          ref.refresh(ordersProvider);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Payment method saved: ${pm['method']}')),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
+                      }
+                    }
+                    if (v == 'edit') {
+                      if (isCheckedOut) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'This order is already checked out and can’t be edited.')));
+                        return;
+                      }
+                      final changed = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                OrderScreen(isEdit: true, order: o)),
+                      );
+                      if (changed == true && mounted)
+                        ref.refresh(ordersProvider);
+                    }
+                    if (v == 'print') await _printOrder(o);
+                    if (v == 'checkout') await _checkoutOrder(o);
+                    if (v == 'mark_paid') {
+                      await _markPaid(o);
+                      if (mounted) ref.refresh(ordersProvider);
+                    }
+                    if (v == 'delete') {
+                      try {
+                        await _deleteOrder(id);
+                        if (mounted) ref.refresh(ordersProvider);
+                      } catch (e) {
+                        if (mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Delete failed: $e')));
+                      }
+                    }
+                  },
+                  itemBuilder: (_) {
+                    final items = <PopupMenuEntry<String>>[
+                      const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')),
+                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      const PopupMenuItem(value: 'print', child: Text('Print')),
+                    ];
+                    if (!isCheckedOut) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
+                    if (_canManage && status != 'Paid' && !isCheckedOut)
+                      items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
+                    if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
+                    return items;
+                  },
+                ),
             ],
           ),
-        ),
+        ],
       ),
+    ),
+    )
     );
   }
 
@@ -820,7 +1093,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Print failed: $e')));
     }
   }
-
 
   Future<Map<String, double>?> _askVatDiscountDialog({
     double initialVat = 13.0,
