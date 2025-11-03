@@ -1,9 +1,13 @@
 // lib/screens/orders_list_screen.dart
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:nepali_date_picker/nepali_date_picker.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../models/order_model.dart';
 import '../services/print_service.dart';
@@ -11,6 +15,7 @@ import '../state/auth.dart';
 import 'order_screen.dart';
 import '../config.dart';
 import '../providers/socket_provider.dart';
+
 
 String _serverMsg(String action, int code, String body) {
   try {
@@ -142,7 +147,9 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     // Pre-fill amounts: use finalAmount if present else totalAmount
     final double orderAmount = (order['finalAmount'] is num)
         ? (order['finalAmount'] as num).toDouble()
-        : ((order['totalAmount'] is num) ? (order['totalAmount'] as num).toDouble() : 0.0);
+        : ((order['totalAmount'] is num)
+        ? (order['totalAmount'] as num).toDouble()
+        : 0.0);
 
     // helper to show validation error
     void showErr(String msg) {
@@ -161,7 +168,8 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                 const SizedBox(height: 8),
                 const Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('Choose split type:', style: TextStyle(fontWeight: FontWeight.w600))),
+                    child: Text('Choose split type:',
+                        style: TextStyle(fontWeight: FontWeight.w600))),
                 RadioListTile<String>(
                   title: const Text('Cash + Card'),
                   value: 'cash-card',
@@ -190,14 +198,16 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                             child: TextField(
                               controller: splitAController,
                               keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
+                              const TextInputType.numberWithOptions(
+                                  decimal: true),
                               decoration: InputDecoration(
                                 labelText: othersCombo == 'cash-card'
                                     ? 'Cash amount'
                                     : othersCombo == 'cash-online'
                                     ? 'Cash amount'
                                     : 'Card amount',
-                                hintText: orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
+                                hintText:
+                                orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
                               ),
                             ),
                           ),
@@ -206,14 +216,16 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                             child: TextField(
                               controller: splitBController,
                               keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
+                              const TextInputType.numberWithOptions(
+                                  decimal: true),
                               decoration: InputDecoration(
                                 labelText: othersCombo == 'cash-card'
                                     ? 'Card amount'
                                     : othersCombo == 'cash-online'
                                     ? 'Online amount'
                                     : 'Online amount',
-                                hintText: orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
+                                hintText:
+                                orderAmount > 0 ? orderAmount.toStringAsFixed(2) : '',
                               ),
                             ),
                           ),
@@ -279,7 +291,8 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                         });
                       }
                     },
-                    title: const Text('Mark as Credit (customer will pay later)'),
+                    title:
+                    const Text('Mark as Credit (customer will pay later)'),
                     controlAffinity: ListTileControlAffinity.leading,
                   ),
                 ],
@@ -307,15 +320,19 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                       showErr('Select a split type for Others');
                       return;
                     }
-                    final a = double.tryParse(splitAController.text.trim()) ?? 0.0;
-                    final b = double.tryParse(splitBController.text.trim()) ?? 0.0;
+                    final a =
+                        double.tryParse(splitAController.text.trim()) ?? 0.0;
+                    final b =
+                        double.tryParse(splitBController.text.trim()) ?? 0.0;
                     if (a <= 0 && b <= 0) {
                       showErr('Enter amounts for both split fields');
                       return;
                     }
                     final total = a + b;
-                    if ((orderAmount > 0) && (total - orderAmount).abs() > 0.01) {
-                      showErr('Split total (${total.toStringAsFixed(2)}) must equal order amount (${orderAmount.toStringAsFixed(2)})');
+                    if ((orderAmount > 0) &&
+                        (total - orderAmount).abs() > 0.01) {
+                      showErr(
+                          'Split total (${total.toStringAsFixed(2)}) must equal order amount (${orderAmount.toStringAsFixed(2)})');
                       return;
                     }
                     // assign to split based on combo
@@ -511,6 +528,290 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     });
   }
 
+  // -------------------- INVOICE HELPERS --------------------
+
+  /// Fetch saved receipt by orderId; returns parsed JSON or null.
+  Future<Map<String, dynamic>?> _fetchReceiptJson(String orderId) async {
+    final token = ref.read(authStateProvider)?.token ?? '';
+    if (token.isEmpty) return null;
+    final res = await http.get(
+      Uri.parse('${AppConfig.apiBase}/receipts/$orderId'),
+      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+    );
+    if (res.statusCode != 200) return null;
+    try {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetch restaurant settings (same endpoint used elsewhere)
+  Future<Map<String, dynamic>?> _fetchRestaurantSettings() async {
+    final token = ref.read(authStateProvider)?.token ?? '';
+    if (token.isEmpty) return null;
+    final res = await http.get(
+      Uri.parse('${AppConfig.apiBase}/restaurant-settings'),
+      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+    );
+    if (res.statusCode != 200) return null;
+    try {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      // many implementations return { settings: { ... } } like other files
+      if (body.containsKey('settings')) return body['settings'] as Map<String, dynamic>;
+      return body;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Build invoice PDF bytes (A4) from order JSON + receipt JSON + restaurant settings.
+  Future<Uint8List> _buildInvoicePdfBytes(
+      Map<String, dynamic> orderJson,
+      Map<String, dynamic> receiptJson,
+      Map<String, dynamic>? settings,
+      ) async {
+    final doc = pw.Document();
+    final pw.ThemeData base = pw.ThemeData.withFont(
+      base: await PdfGoogleFonts.openSansRegular(),
+      bold: await PdfGoogleFonts.openSansBold(),
+    );
+
+    final restaurantName = settings?['restaurantName']?.toString() ?? receiptJson['restaurantName']?.toString() ?? 'Restaurant';
+    final vatNo = settings?['vatNo']?.toString() ?? '';
+    final panNo = settings?['panNo']?.toString() ?? '';
+    final address = settings?['address']?.toString() ?? '';
+    final phone = settings?['phone']?.toString() ?? '';
+    final email = settings?['email']?.toString() ?? '';
+    final footerNote = settings?['footerNote']?.toString() ?? 'Thank you for dining with us!';
+
+    // invoice number: prefer order serial (orderId) else fallback to order _id
+    final invoiceNumber = (orderJson['orderId'] ?? orderJson['orderNumber'] ?? orderJson['_id'] ?? '').toString();
+
+    // payment method
+    String paymentMethod = '';
+    try {
+      final pm = orderJson['paymentMethod'];
+      if (pm is Map) {
+        paymentMethod = (pm['method']?.toString() ?? pm['type']?.toString() ?? '').toString();
+      } else if (pm is String) {
+        paymentMethod = pm;
+      } else {
+        paymentMethod = (receiptJson['paymentMethod']?.toString() ?? orderJson['paymentMethod']?.toString() ?? '');
+      }
+    } catch (_) {
+      paymentMethod = '';
+    }
+
+    // times
+    final receiptPrintedAt = receiptJson['printedAt'] != null
+        ? DateTime.tryParse(receiptJson['printedAt'].toString())
+        : (receiptJson['createdAt'] != null ? DateTime.tryParse(receiptJson['createdAt'].toString()) : null);
+    final receiptPrintedStr = receiptPrintedAt != null ? receiptPrintedAt.toLocal().toString() : '';
+    final invoiceGeneratedAt = DateTime.now().toLocal().toString();
+
+    // Items: from receiptJson items preferred
+    final itemsRaw = (receiptJson['items'] as List?) ?? (orderJson['items'] as List?) ?? [];
+    final items = itemsRaw.map((m) {
+      final map = m as Map<String, dynamic>;
+      final name = (map['name'] ?? '').toString();
+      final unit = (map['unitName'] ?? map['unit'] ?? '').toString();
+      final price = (map['price'] is num) ? (map['price'] as num).toDouble() : 0.0;
+      final qty = (map['quantity'] is num) ? (map['quantity'] as num).toDouble() : ((map['qty'] is num) ? (map['qty'] as num).toDouble() : 0.0);
+      final total = price * qty;
+      return {'name': name, 'unit': unit, 'price': price, 'qty': qty, 'total': total};
+    }).toList();
+
+    final subtotal = (receiptJson['subtotal'] is num) ? (receiptJson['subtotal'] as num).toDouble() : items.fold(0.0, (s, it) => s + (it['total'] as double));
+    final discountPercent = (receiptJson['discountPercent'] is num) ? (receiptJson['discountPercent'] as num).toDouble() : 0.0;
+    final discountAmount = (receiptJson['discountAmount'] is num) ? (receiptJson['discountAmount'] as num).toDouble() : (discountPercent > 0 ? subtotal * discountPercent / 100 : 0.0);
+    final subtotalAfterDiscount = subtotal - discountAmount;
+    final vatPercent = (receiptJson['vatPercent'] is num) ? (receiptJson['vatPercent'] as num).toDouble() : 0.0;
+    final vatAmount = (receiptJson['vatAmount'] is num) ? (receiptJson['vatAmount'] as num).toDouble() : (vatPercent > 0 ? subtotalAfterDiscount * vatPercent / 100 : 0.0);
+    final finalAmount = (receiptJson['finalAmount'] is num) ? (receiptJson['finalAmount'] as num).toDouble() : subtotalAfterDiscount + vatAmount;
+
+    // Logo: try fetch bytes if logoUrl present
+    pw.MemoryImage? logoImage;
+    final logoUrl = settings?['logoUrl']?.toString();
+    if (logoUrl != null && logoUrl.isNotEmpty) {
+      try {
+        // attempt to fetch logo bytes (hostBase used by your app elsewhere)
+        final logoUri = logoUrl.startsWith('http') ? Uri.parse(logoUrl) : Uri.parse('${AppConfig.hostBase}/${logoUrl}');
+        final logoRes = await http.get(logoUri);
+        if (logoRes.statusCode == 200) {
+          logoImage = pw.MemoryImage(logoRes.bodyBytes);
+        }
+      } catch (_) {
+        logoImage = null;
+      }
+    }
+
+    // Build PDF page
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        theme: base,
+        build: (pw.Context ctx) {
+          return [
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(restaurantName, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+                      if (address.isNotEmpty) pw.Text(address, style: pw.TextStyle(fontSize: 10)),
+                      if (phone.isNotEmpty) pw.Text('Phone: $phone', style: pw.TextStyle(fontSize: 10)),
+                      if (email.isNotEmpty) pw.Text('Email: $email', style: pw.TextStyle(fontSize: 10)),
+                      pw.SizedBox(height: 6),
+                      if (vatNo.isNotEmpty) pw.Text('VAT: $vatNo', style: pw.TextStyle(fontSize: 10)),
+                      if (panNo.isNotEmpty) pw.Text('PAN: $panNo', style: pw.TextStyle(fontSize: 10)),
+                    ]),
+                if (logoImage != null)
+                  pw.Container(width: 80, height: 80, child: pw.Image(logoImage, fit: pw.BoxFit.contain))
+              ],
+            ),
+            pw.SizedBox(height: 12),
+            pw.Divider(),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                  pw.Text('Invoice #: $invoiceNumber', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Table: ${receiptJson['tableName'] ?? orderJson['tableName'] ?? ''}', style: pw.TextStyle(fontSize: 10)),
+                  pw.Text('Payment: ${paymentMethod.isNotEmpty ? paymentMethod : (receiptJson['paymentStatus'] ?? orderJson['paymentStatus'] ?? '')}', style: pw.TextStyle(fontSize: 10)),
+                ]),
+                pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+                  pw.Text('Receipt time: ${receiptPrintedStr}', style: pw.TextStyle(fontSize: 9)),
+                  pw.Text('Invoice time: ${invoiceGeneratedAt}', style: pw.TextStyle(fontSize: 9)),
+                ]),
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Table.fromTextArray(
+              headers: ['Item', 'Unit', 'Qty', 'Price', 'Total'],
+              data: items.map((it) => [
+                it['name'],
+                it['unit'],
+                (it['qty'] is double) ? (it['qty'] as double).toStringAsFixed(2) : it['qty'].toString(),
+                (it['price'] as double).toStringAsFixed(2),
+                (it['total'] as double).toStringAsFixed(2),
+              ]).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellStyle: pw.TextStyle(fontSize: 10),
+              cellAlignment: pw.Alignment.centerLeft,
+              headerDecoration: pw.BoxDecoration(color: PdfColors.grey200),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+                    pw.Text('Subtotal: ', style: pw.TextStyle(fontSize: 10)),
+                    pw.SizedBox(width: 8),
+                    pw.Text('Rs ${subtotal.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10)),
+                  ]),
+                  if (discountAmount > 0)
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+                      pw.Text('Discount (${discountPercent.toStringAsFixed(0)}%): ', style: pw.TextStyle(fontSize: 10)),
+                      pw.SizedBox(width: 8),
+                      pw.Text('- Rs ${discountAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10)),
+                    ]),
+                  if (vatAmount > 0)
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+                      pw.Text('VAT (${vatPercent.toStringAsFixed(0)}%): ', style: pw.TextStyle(fontSize: 10)),
+                      pw.SizedBox(width: 8),
+                      pw.Text('Rs ${vatAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10)),
+                    ]),
+                  pw.Divider(),
+                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+                    pw.Text('Total: ', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(width: 8),
+                    pw.Text('Rs ${finalAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  ]),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text(footerNote, style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+            pw.SizedBox(height: 12),
+            pw.Text('Powered by Flutter POS', style: pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
+          ];
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  /// Preview invoice as a PDF-style screen using PdfPreview
+  Future<void> _viewInvoice(Map<String, dynamic> orderJson) async {
+    final orderId = (orderJson['_id'] ?? '').toString();
+    if (orderId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid order id')));
+      return;
+    }
+
+    // fetch receipt
+    final receiptJson = await _fetchReceiptJson(orderId);
+    if (receiptJson == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No saved receipt found — generate receipt first')));
+      return;
+    }
+
+    // fetch restaurant settings
+    final settings = await _fetchRestaurantSettings();
+
+    // navigate to preview screen
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (ctx) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Invoice Preview'), backgroundColor: const Color(0xFFFF7043)),
+        body: PdfPreview(
+          build: (format) async {
+            return _buildInvoicePdfBytes(orderJson, receiptJson, settings);
+          },
+          allowPrinting: true,
+          allowSharing: true,
+        ),
+      );
+    }));
+  }
+
+  /// Print invoice directly
+  Future<void> _printInvoice(Map<String, dynamic> orderJson) async {
+    final orderId = (orderJson['_id'] ?? '').toString();
+    if (orderId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid order id')));
+      return;
+    }
+
+    // fetch receipt
+    final receiptJson = await _fetchReceiptJson(orderId);
+    if (receiptJson == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No saved receipt found — generate receipt first')));
+      return;
+    }
+
+    final settings = await _fetchRestaurantSettings();
+    try {
+      final bytes = await _buildInvoicePdfBytes(orderJson, receiptJson, settings);
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Invoice print failed: $e')));
+    }
+  }
+
+  // -------------------- END INVOICE HELPERS --------------------
+
   Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
     final id = (o['_id'] ?? '').toString();
     final table = (o['table']?['name'] ?? '—').toString();
@@ -559,177 +860,190 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-          Text('$table • $area',
-              style: const TextStyle(
-                  fontSize: 17, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_selectMode)
-                Checkbox(
-                  value: selected,
-                  onChanged: (_) => _toggleSelected(id),
-                )
-              else
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: chipColor.withOpacity(.1),
-                  child: Icon(Icons.receipt_long,
-                      color: chipColor, size: 24),
-                ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.withOpacity(.08),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                              color: Colors.blueGrey.withOpacity(.25)),
-                        ),
-                        child: Text(orderNoText,
-                            style: const TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.w700)),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: chipColor.withOpacity(.08),
-                          borderRadius: BorderRadius.circular(999),
-                          border:
-                          Border.all(color: chipColor.withOpacity(.25)),
-                        ),
-                        child: Text(status,
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: chipColor)),
-                      ),
-                      if (isCheckedOut) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(.08),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                                color: Colors.green.withOpacity(.25)),
+              Text('$table • $area',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_selectMode)
+                    Checkbox(
+                      value: selected,
+                      onChanged: (_) => _toggleSelected(id),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: chipColor.withOpacity(.1),
+                      child: Icon(Icons.receipt_long,
+                          color: chipColor, size: 24),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.withOpacity(.08),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                  color: Colors.blueGrey.withOpacity(.25)),
+                            ),
+                            child: Text(orderNoText,
+                                style: const TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w700)),
                           ),
-                          child: const Text('Checked out',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.green)),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: chipColor.withOpacity(.08),
+                              borderRadius: BorderRadius.circular(999),
+                              border:
+                              Border.all(color: chipColor.withOpacity(.25)),
+                            ),
+                            child: Text(status,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: chipColor)),
+                          ),
+                          if (isCheckedOut) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(.08),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                    color: Colors.green.withOpacity(.25)),
+                              ),
+                              child: const Text('Checked out',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.green)),
+                            ),
+                          ],
+                        ]),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13, color: Colors.brown.shade800),
                         ),
                       ],
-                    ]),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.brown.shade800),
                     ),
-                  ],
-                ),
-              ),
-              if (!_selectMode)
-                PopupMenuButton<String>(
-                  onSelected: (v) async {
-                    if (v == 'set_payment') {
-                      // Set payment (same as checkout flow but only sets payment method)
-                      final pm = await _selectPaymentMethodDialog(o);
-                      if (pm == null) return;
-                      // apply it with a backend update (not checkout) to keep order updated
-                      final id = (o['_id'] ?? '').toString();
-                      try {
-                        final r = await http.put(
-                          Uri.parse('${AppConfig.apiBase}/orders/$id'),
-                          headers: _headers(),
-                          body: jsonEncode({
-                            'paymentMethod': pm,
-                            // if single method and not credit mark paymentStatus=Paid; if credit, mark Credit
-                            'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
-                          }),
-                        );
-                        if (r.statusCode ~/ 100 != 2) {
-                          throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
+                  ),
+                  if (!_selectMode)
+                    PopupMenuButton<String>(
+                      onSelected: (v) async {
+                        if (v == 'set_payment') {
+                          // Set payment (same as checkout flow but only sets payment method)
+                          final pm = await _selectPaymentMethodDialog(o);
+                          if (pm == null) return;
+                          // apply it with a backend update (not checkout) to keep order updated
+                          final id = (o['_id'] ?? '').toString();
+                          try {
+                            final r = await http.put(
+                              Uri.parse('${AppConfig.apiBase}/orders/$id'),
+                              headers: _headers(),
+                              body: jsonEncode({
+                                'paymentMethod': pm,
+                                // if single method and not credit mark paymentStatus=Paid; if credit, mark Credit
+                                'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
+                              }),
+                            );
+                            if (r.statusCode ~/ 100 != 2) {
+                              throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
+                            }
+                            if (mounted) {
+                              ref.refresh(ordersProvider);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Payment method saved: ${pm['method']}')),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
+                          }
                         }
-                        if (mounted) {
-                          ref.refresh(ordersProvider);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Payment method saved: ${pm['method']}')),
+                        if (v == 'edit') {
+                          if (isCheckedOut) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'This order is already checked out and can’t be edited.')));
+                            return;
+                          }
+                          final changed = await Navigator.push<bool>(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    OrderScreen(isEdit: true, order: o)),
                           );
+                          if (changed == true && mounted)
+                            ref.refresh(ordersProvider);
                         }
-                      } catch (e) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
-                      }
-                    }
-                    if (v == 'edit') {
-                      if (isCheckedOut) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text(
-                                    'This order is already checked out and can’t be edited.')));
-                        return;
-                      }
-                      final changed = await Navigator.push<bool>(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                OrderScreen(isEdit: true, order: o)),
-                      );
-                      if (changed == true && mounted)
-                        ref.refresh(ordersProvider);
-                    }
-                    if (v == 'print') await _printOrder(o);
-                    if (v == 'checkout') await _checkoutOrder(o);
-                    if (v == 'mark_paid') {
-                      await _markPaid(o);
-                      if (mounted) ref.refresh(ordersProvider);
-                    }
-                    if (v == 'delete') {
-                      try {
-                        await _deleteOrder(id);
-                        if (mounted) ref.refresh(ordersProvider);
-                      } catch (e) {
-                        if (mounted)
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Delete failed: $e')));
-                      }
-                    }
-                  },
-                  itemBuilder: (_) {
-                    final items = <PopupMenuEntry<String>>[
-                      const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')),
-                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      const PopupMenuItem(value: 'print', child: Text('Print')),
-                    ];
-                    if (!isCheckedOut) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
-                    if (_canManage && status != 'Paid' && !isCheckedOut)
-                      items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
-                    if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
-                    return items;
-                  },
-                ),
+                        if (v == 'print') await _printOrder(o);
+                        if (v == 'checkout') await _checkoutOrder(o);
+                        if (v == 'mark_paid') {
+                          await _markPaid(o);
+                          if (mounted) ref.refresh(ordersProvider);
+                        }
+                        if (v == 'delete') {
+                          try {
+                            await _deleteOrder(id);
+                            if (mounted) ref.refresh(ordersProvider);
+                          } catch (e) {
+                            if (mounted)
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Delete failed: $e')));
+                          }
+                        }
+                        if (v == 'view_invoice') {
+                          await _viewInvoice(o);
+                        }
+                        if (v == 'print_invoice') {
+                          await _printInvoice(o);
+                        }
+                      },
+                      itemBuilder: (_) {
+                        final items = <PopupMenuEntry<String>>[
+                          const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')),
+                          const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          const PopupMenuItem(value: 'print', child: Text('Print')),
+                        ];
+
+                        // invoice options: only show if receipt printed / checked out
+                        if (isCheckedOut) {
+                          items.add(const PopupMenuItem(value: 'view_invoice', child: Text('View Invoice')));
+                          items.add(const PopupMenuItem(value: 'print_invoice', child: Text('Print Invoice')));
+                        }
+
+                        if (!isCheckedOut) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
+                        if (_canManage && status != 'Paid' && !isCheckedOut)
+                          items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
+                        if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
+                        return items;
+                      },
+                    ),
+                ],
+              ),
             ],
           ),
-        ],
+        ),
       ),
-    ),
-    )
     );
   }
 
