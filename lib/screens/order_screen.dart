@@ -47,12 +47,16 @@ class LoadingOverlay {
   }
 }
 
+// NOTE: items provider changed to a family so it can accept an optional categoryId.
 final orderItemsCatalogProvider =
-FutureProvider<List<Map<String, dynamic>>>((ref) async {
+FutureProvider.family<List<Map<String, dynamic>>, String?>((ref, categoryId) async {
   final token = ref.read(authStateProvider)?.token ?? '';
+  final url = (categoryId == null || categoryId.isEmpty)
+      ? '${AppConfig.apiBase}/items'
+      : '${AppConfig.apiBase}/items/by-category/$categoryId';
   final r = await http
       .get(
-    Uri.parse('${AppConfig.apiBase}/items'),
+    Uri.parse(url),
     headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
   )
       .timeout(const Duration(seconds: 15));
@@ -76,6 +80,23 @@ FutureProvider<List<Map<String, dynamic>>>((ref) async {
     throw Exception('Tables load failed: ${r.statusCode} ${r.body}');
   }
   final list = (jsonDecode(r.body)['tables'] as List?) ?? [];
+  return list.cast<Map<String, dynamic>>();
+});
+
+/// NEW: categories provider
+final orderCategoriesProvider =
+FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final token = ref.read(authStateProvider)?.token ?? '';
+  final r = await http
+      .get(
+    Uri.parse('${AppConfig.apiBase}/categories'),
+    headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+  )
+      .timeout(const Duration(seconds: 15));
+  if (r.statusCode != 200) {
+    throw Exception('Categories load failed: ${r.statusCode} ${r.body}');
+  }
+  final list = (jsonDecode(r.body)['categories'] as List?) ?? [];
   return list.cast<Map<String, dynamic>>();
 });
 
@@ -127,6 +148,9 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
   bool _submitting = false;
 
   Timer? _debounce;
+
+  // NEW: selected category id
+  String? _selectedCategoryId;
 
   @override
   void initState() {
@@ -477,8 +501,7 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
         if (r.statusCode ~/ 100 != 2) {
           final msg =
           _serverMsg('Update failed', r.statusCode, r.body);
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(msg)));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
           return;
         }
 
@@ -525,7 +548,9 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final itemsAsync = ref.watch(orderItemsCatalogProvider);
+    // use categories provider and items provider (family) with selected category
+    final categoriesAsync = ref.watch(orderCategoriesProvider);
+    final itemsAsync = ref.watch(orderItemsCatalogProvider(_selectedCategoryId));
     final tablesAsync = ref.watch(orderTablesProvider);
 
     final themeColor = const Color(0xFFF57C00);
@@ -611,16 +636,65 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
                 color: themeColor),
             const SizedBox(height: 8),
 
-            TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: 'Search item...',
-                filled: true,
-                fillColor: Colors.white,
-                border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
+            // SEARCH + CATEGORY ROW (category dropdown added next to search)
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'Search item...',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border:
+                      OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: categoriesAsync.when(
+                    loading: () => Container(
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                    error: (e, _) => Text('Category error: $e',
+                        style: const TextStyle(color: Colors.red)),
+                    data: (cats) {
+                      // include All option (null)
+                      final items = <DropdownMenuItem<String?>>[
+                        const DropdownMenuItem(value: null, child: Text('All')),
+                        ...cats.map((c) {
+                          return DropdownMenuItem(
+                            value: c['_id'] as String,
+                            child: Text(c['name'] ?? ''),
+                          );
+                        }).toList(),
+                      ];
+
+                      return DropdownButtonFormField<String?>(
+                        value: _selectedCategoryId,
+                        decoration: InputDecoration(
+                          labelText: 'Category',
+                          border:
+                          OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        items: items,
+                        onChanged: (v) => setState(() => _selectedCategoryId = v),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
 

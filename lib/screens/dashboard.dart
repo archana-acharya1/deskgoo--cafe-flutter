@@ -4,6 +4,7 @@ import 'package:deskgoo_cafe_v2/screens/users_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'area_screen.dart';
+import 'category_screen.dart';
 import 'item_screen.dart';
 import 'login_page.dart';
 import '../state/auth.dart';
@@ -128,6 +129,8 @@ class _DashboardState extends ConsumerState<Dashboard> {
         return const UsersPage();
       case 'Stock':
         return const StockScreen();
+      case 'Categories':
+        return const CategoryScreen();
       case 'Settings':
         return RestaurantSettingsScreen(
           token: authState!.token,
@@ -174,16 +177,18 @@ class _DashboardState extends ConsumerState<Dashboard> {
                   ),
                 ),
                 drawerItem('Home', Icons.home),
+                drawerItem('Categories', Icons.category),
                 drawerItem('Items', Icons.fastfood),
                 drawerItem('Areas', Icons.location_city),
                 drawerItem('Tables', Icons.table_bar),
                 drawerItem('New Order', Icons.add_shopping_cart),
                 drawerItem('Orders', Icons.receipt),
                 drawerItem('Stock', Icons.inventory),
-                if (_canSeeSettings)
-                  drawerItem('Settings', Icons.settings),
                 if (_canSeeUsers)
                   drawerItem('Users', Icons.supervised_user_circle),
+                if (_canSeeSettings)
+                  drawerItem('Settings', Icons.settings),
+
               ],
             ),
           ),
