@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../providers/socket_provider.dart';
 
 import '../state/auth.dart';
 import 'dashboard.dart';
@@ -113,6 +114,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           roleName: roleFromApi,
           restaurantId: restaurantId,
         );
+
+        final socketService = ref.read(socketProvider);
+        socketService.instance.connect();
 
         if (!mounted) return;
         Navigator.pushReplacement(

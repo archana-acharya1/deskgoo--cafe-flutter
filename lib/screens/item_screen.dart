@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import '../state/auth.dart';
 import '../config.dart';
+import '../services/socket_service.dart';
 
 String _imgUrl(String? p) {
   if (p == null || p.isEmpty) return '';
@@ -61,6 +62,7 @@ class ItemScreen extends ConsumerStatefulWidget {
 class _ItemScreenState extends ConsumerState<ItemScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  final SocketService _socketService = SocketService();
 
   bool get _canManage {
     final role = (ref.read(authStateProvider)?.roleName ?? '').toLowerCase();
@@ -73,11 +75,28 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
   }
 
   @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+
+    final restaurantId = ref.read(authStateProvider)?.restaurantId ?? '';
+    if (restaurantId.isNotEmpty) {
+      _socketService.connect(AppConfig.socketBase, restaurantId);
+
+      _socketService.onItemCreated((item) => ref.refresh(itemsProvider));
+      _socketService.onItemUpdated((item) => ref.refresh(itemsProvider));
+      _socketService.onItemDeleted((id) => ref.refresh(itemsProvider));
+      _socketService.onCategoryCreated((_) => ref.refresh(categoriesProvider));
+      _socketService.onCategoryUpdated((_) => ref.refresh(categoriesProvider));
+      _socketService.onCategoryDeleted((_) => ref.refresh(categoriesProvider));
+    }
   }
 
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _socketService.disconnect();
+    super.dispose();
+  }
   Future<void> _delete(String id) async {
     final r = await http.delete(
       Uri.parse('${AppConfig.apiBase}/items/$id'),

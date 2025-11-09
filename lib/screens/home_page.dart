@@ -80,9 +80,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   void initState() {
     super.initState();
 
-    // Initialize socket connection automatically (no need to call connect)
     final socketService = ref.read(socketProvider);
-    setupSocketListeners(ref); // Attach event listeners
+    setupSocketListeners(ref);
   }
 
   @override

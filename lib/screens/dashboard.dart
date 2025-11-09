@@ -1,3 +1,4 @@
+import 'package:deskgoo_cafe_v2/providers/socket_provider.dart';
 import 'package:deskgoo_cafe_v2/screens/home_page.dart';
 import 'package:deskgoo_cafe_v2/screens/table_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/users_page.dart';
@@ -59,6 +60,8 @@ class _DashboardState extends ConsumerState<Dashboard> {
     );
 
     if (shouldLogout == true) {
+      final socketService = ref.read(socketProvider);
+      socketService.disconnect();
       ref.read(authStateProvider.notifier).state = null;
       if (!mounted) return;
       Navigator.pushReplacement(

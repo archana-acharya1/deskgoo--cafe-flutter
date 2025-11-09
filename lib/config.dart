@@ -18,4 +18,8 @@ class AppConfig {
     'HOST_BASE',
     defaultValue: 'http://202.51.3.168:3000',
   );
+  static const socketBase = String.fromEnvironment(
+    'SOCKET_BASE',
+    defaultValue: 'http://202.51.3.168:3000'
+  );
 }

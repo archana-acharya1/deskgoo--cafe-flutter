@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../state/auth.dart';
 import '../config.dart';
+import '../services/socket_service.dart';
 
 class CategoryScreen extends ConsumerStatefulWidget {
   const CategoryScreen({super.key});
@@ -19,17 +20,53 @@ class _CategoryScreenState extends ConsumerState<CategoryScreen> {
   bool isLoading = false;
   final TextEditingController _searchController = TextEditingController();
 
+  final SocketService _socketService = SocketService();
+
   static const themeColor = Color(0xFFFF7043);
 
   @override
   void initState() {
     super.initState();
     _fetchCategories();
+    _initSocket();
     _searchController.addListener(_filterCategories);
+  }
+
+  void _initSocket() {
+    final auth = ref.read(authStateProvider);
+    if (auth == null) return;
+
+    _socketService.connect(AppConfig.socketBase, auth.restaurantId);
+
+    _socketService.onCategoryCreated((category) {
+      setState(() {
+        categories.add(category);
+        _filterCategories();
+      });
+      _showSnack('New category added: ${category['name']}');
+    });
+
+    _socketService.onCategoryUpdated((updated) {
+      setState(() {
+        final index = categories.indexWhere((c) => c['_id'] == updated['_id']);
+        if (index != -1) categories[index] = updated;
+        _filterCategories();
+      });
+      _showSnack('Category updated: ${updated['name']}');
+    });
+
+    _socketService.onCategoryDeleted((id) {
+      setState(() {
+        categories.removeWhere((c) => c['_id'] == id);
+        _filterCategories();
+      });
+      _showSnack('Category deleted');
+    });
   }
 
   @override
   void dispose() {
+    _socketService.disconnect();
     _searchController.dispose();
     super.dispose();
   }

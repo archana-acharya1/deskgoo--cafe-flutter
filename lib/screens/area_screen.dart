@@ -1,3 +1,4 @@
+import '../services/socket_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -42,7 +43,7 @@ final areasProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
 });
 
 final areaTablesProvider =
-FutureProvider.family<List<Map<String, dynamic>>, String>((ref, areaId) async {
+  FutureProvider.family<List<Map<String, dynamic>>, String>((ref, areaId) async {
   final token = ref.read(authStateProvider)?.token ?? '';
   final headers = {
     'Authorization': 'Bearer $token',
@@ -67,6 +68,8 @@ class _AreaScreenState extends ConsumerState<AreaScreen> {
   final _picker = ImagePicker();
   final _searchCtrl = TextEditingController();
   String _query = '';
+
+  late SocketService _socketService;
 
   bool get _canManage {
     final role = (ref.read(authStateProvider)?.roleName ?? '').toLowerCase();
@@ -570,8 +573,32 @@ class _AreaScreenState extends ConsumerState<AreaScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+
+    _socketService = SocketService();
+    final restaurantId = ref.read(authStateProvider)?.restaurantId ?? '';
+    _socketService.connect(AppConfig.socketBase, restaurantId);
+
+    _socketService.onAreaCreated((area) {
+      print('Area created via socket: $area');
+      ref.refresh(areasProvider);
+    });
+    _socketService.onAreaUpdated((area) {
+      print('Area updated via socket: $area');
+      ref.refresh(areasProvider);
+    });
+    _socketService.onAreaDeleted((areaId) {
+      print('Area deleted via socket: $areaId');
+      ref.refresh(areasProvider);
+    });
+  }
+
+
+  @override
   void dispose() {
     _searchCtrl.dispose();
+    _socketService.disconnect();
     super.dispose();
   }
 

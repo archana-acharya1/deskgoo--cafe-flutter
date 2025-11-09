@@ -6,7 +6,6 @@ import 'socket_provider.dart';
 void setupSocketListeners(WidgetRef ref) {
   final socket = ref.read(socketProvider).instance;
 
-  // --- KOT NEW ---
   socket.on('kot:new', (data) {
     final order = OrderModel(
       id: data['_id']?.toString() ?? data['id']?.toString() ?? '',
@@ -41,7 +40,6 @@ void setupSocketListeners(WidgetRef ref) {
     ref.read(ordersProvider.notifier).addOrder(order);
   });
 
-  // --- KOT UPDATE ---
   socket.on('kot:update', (data) {
     final updatedOrder = OrderModel(
       id: data['_id']?.toString() ?? data['id']?.toString() ?? '',
@@ -76,7 +74,6 @@ void setupSocketListeners(WidgetRef ref) {
     ref.read(ordersProvider.notifier).updateOrder(updatedOrder);
   });
 
-  // --- KOT VOID ---
   socket.on('kot:void', (data) {
     final voidedOrder = OrderModel(
       id: data['_id']?.toString() ?? data['id']?.toString() ?? '',
