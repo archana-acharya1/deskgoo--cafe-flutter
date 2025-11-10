@@ -5,15 +5,16 @@ import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../state/auth.dart';
 
-// ----------------------
-// Models
-// ----------------------
 class SalesSummary {
   final String period;
   final double totalSales;
   final int totalOrders;
 
-  SalesSummary({required this.period, required this.totalSales, required this.totalOrders});
+  SalesSummary({
+    required this.period,
+    required this.totalSales,
+    required this.totalOrders,
+  });
 
   factory SalesSummary.fromJson(Map<String, dynamic> json) {
     return SalesSummary(
@@ -29,7 +30,11 @@ class TopItem {
   final double totalRevenue;
   final int totalQuantity;
 
-  TopItem({required this.name, required this.totalRevenue, required this.totalQuantity});
+  TopItem({
+    required this.name,
+    required this.totalRevenue,
+    required this.totalQuantity,
+  });
 
   factory TopItem.fromJson(Map<String, dynamic> json) {
     return TopItem(
@@ -40,9 +45,6 @@ class TopItem {
   }
 }
 
-// ----------------------
-// Reports Screen
-// ----------------------
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
 
@@ -50,7 +52,8 @@ class ReportsScreen extends ConsumerStatefulWidget {
   ConsumerState<ReportsScreen> createState() => _ReportsScreenState();
 }
 
-class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTickerProviderStateMixin {
+class _ReportsScreenState extends ConsumerState<ReportsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   DateTime? startDate;
   DateTime? endDate;
@@ -85,7 +88,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     }
 
     List<dynamic> data = json.decode(response.body);
-    // Sort by date if Summary or Top Items
     if (endpoint == 'sales/summary' || endpoint == 'sales/top-items') {
       data.sort((a, b) {
         DateTime dateA = endpoint == 'sales/summary'
@@ -109,8 +111,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     );
     if (date != null) {
       setState(() {
-        if (isStart) startDate = date;
-        else endDate = date;
+        if (isStart) {
+          startDate = date;
+        } else {
+          endDate = date;
+        }
       });
     }
   }
@@ -137,12 +142,23 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
+    const orange = Color(0xFFFF7043);
+    const cream = Color(0xFFFDF6EC);
+
     return Scaffold(
+      backgroundColor: cream,
       appBar: AppBar(
-        title: const Text('Sales Reports'),
+        backgroundColor: orange,
+        title: const Text(
+          'Sales Reports',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
           tabs: const [
             Tab(text: 'Summary'),
             Tab(text: 'Top Items'),
@@ -153,72 +169,78 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
         ),
         actions: [
           IconButton(
-            icon: Icon(newestFirst ? Icons.arrow_downward : Icons.arrow_upward),
+            icon: Icon(
+              newestFirst ? Icons.arrow_upward : Icons.arrow_downward,
+              color: Colors.white,
+            ),
             onPressed: _toggleSort,
             tooltip: 'Sort by date',
           ),
         ],
+        centerTitle: true,
       ),
       body: Column(
         children: [
-          // Date filters
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                ElevatedButton(
-                  onPressed: () => _pickDate(context, true),
-                  child: Text(startDate == null ? 'Start Date' : startDate!.toLocal().toString().split(' ')[0]),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: () => _pickDate(context, false),
-                  child: Text(endDate == null ? 'End Date' : endDate!.toLocal().toString().split(' ')[0]),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _refreshLast7Days,
-                  child: const Text('Last 7 Days'),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: () => setState(() {}), // refresh
-                  child: const Text('Refresh'),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _clearDates,
-                  child: const Text('Clear'),
-                ),
-              ],
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+            color: Colors.white,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _styledButton(
+                    label: startDate == null
+                        ? 'Start Date'
+                        : startDate!.toLocal().toString().split(' ')[0],
+                    onPressed: () => _pickDate(context, true),
+                  ),
+                  const SizedBox(width: 8),
+                  _styledButton(
+                    label: endDate == null
+                        ? 'End Date'
+                        : endDate!.toLocal().toString().split(' ')[0],
+                    onPressed: () => _pickDate(context, false),
+                  ),
+                  const SizedBox(width: 8),
+                  _styledButton(label: 'Last 7 Days', onPressed: _refreshLast7Days),
+                  const SizedBox(width: 8),
+                  _styledButton(label: 'Refresh', onPressed: () => setState(() {})),
+                  const SizedBox(width: 8),
+                  _styledButton(label: 'Clear', onPressed: _clearDates),
+                ],
+              ),
             ),
           ),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                reportListWidget('sales/summary', (item) => ListTile(
-                  title: Text(item['_id']['period'] ?? ''),
-                  subtitle: Text('Orders: ${item['totalOrders']}'),
-                  trailing: Text('Total: ${item['totalSales'].toStringAsFixed(2)}'),
+                reportListWidget('sales/summary', (item) => _buildCard(
+                  title: item['_id']['period'] ?? '',
+                  subtitle: 'Orders: ${item['totalOrders']}',
+                  trailing:
+                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
-                reportListWidget('sales/top-items', (item) => ListTile(
-                  title: Text(item['name'] ?? ''),
-                  subtitle: Text('Qty Sold: ${item['totalQuantity']}'),
-                  trailing: Text('Revenue: ${item['totalRevenue'].toStringAsFixed(2)}'),
+                reportListWidget('sales/top-items', (item) => _buildCard(
+                  title: item['name'] ?? '',
+                  subtitle: 'Qty Sold: ${item['totalQuantity']}',
+                  trailing:
+                  'Revenue: ${item['totalRevenue'].toStringAsFixed(2)}',
                 )),
-                reportListWidget('sales/by-category', (item) => ListTile(
-                  title: Text(item['_id'] ?? ''),
-                  trailing: Text('Total: ${item['totalSales'].toStringAsFixed(2)}'),
+                reportListWidget('sales/by-category', (item) => _buildCard(
+                  title: item['_id'] ?? '',
+                  trailing:
+                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
-                reportListWidget('sales/by-area', (item) => ListTile(
-                  title: Text(item['_id'] ?? ''),
-                  trailing: Text('Total: ${item['totalSales'].toStringAsFixed(2)}'),
+                reportListWidget('sales/by-area', (item) => _buildCard(
+                  title: item['_id'] ?? '',
+                  trailing:
+                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
-                reportListWidget('sales/by-table', (item) => ListTile(
-                  title: Text(item['_id'] ?? ''),
-                  trailing: Text('Total: ${item['totalSales'].toStringAsFixed(2)}'),
+                reportListWidget('sales/by-table', (item) => _buildCard(
+                  title: item['_id'] ?? '',
+                  trailing:
+                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
               ],
             ),
@@ -228,7 +250,46 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     );
   }
 
-  Widget reportListWidget(String endpoint, Widget Function(dynamic) itemBuilder) {
+  Widget _styledButton({required String label, required VoidCallback onPressed}) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFFF7043),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        elevation: 2,
+      ),
+      onPressed: onPressed,
+      child: Text(label, style: const TextStyle(fontSize: 14)),
+    );
+  }
+
+  Widget _buildCard({required String title, String? subtitle, String? trailing}) {
+    return Card(
+      elevation: 3,
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: subtitle != null ? Text(subtitle) : null,
+        trailing: trailing != null
+            ? Text(
+          trailing,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold, color: Color(0xFFFF7043)),
+        )
+            : null,
+      ),
+    );
+  }
+
+  Widget reportListWidget(
+      String endpoint, Widget Function(dynamic) itemBuilder) {
     return FutureBuilder<List<dynamic>>(
       future: fetchReport(endpoint),
       builder: (context, snapshot) {
