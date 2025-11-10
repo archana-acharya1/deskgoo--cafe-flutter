@@ -1,5 +1,6 @@
 import 'package:deskgoo_cafe_v2/providers/socket_provider.dart';
 import 'package:deskgoo_cafe_v2/screens/home_page.dart';
+import 'package:deskgoo_cafe_v2/screens/report_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/table_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/users_page.dart';
 import 'package:flutter/material.dart';
@@ -134,6 +135,9 @@ class _DashboardState extends ConsumerState<Dashboard> {
         return const StockScreen();
       case 'Categories':
         return const CategoryScreen();
+      case 'Reports':
+        return const ReportsScreen();
+
       case 'Settings':
         return RestaurantSettingsScreen(
           token: authState!.token,
@@ -187,6 +191,7 @@ class _DashboardState extends ConsumerState<Dashboard> {
                 drawerItem('New Order', Icons.add_shopping_cart),
                 drawerItem('Orders', Icons.receipt),
                 drawerItem('Stock', Icons.inventory),
+                drawerItem('Reports', Icons.bar_chart),
                 if (_canSeeUsers)
                   drawerItem('Users', Icons.supervised_user_circle),
                 if (_canSeeSettings)
