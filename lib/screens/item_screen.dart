@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import '../state/auth.dart';
 import '../config.dart';
 import '../services/socket_service.dart';
+import '../services/unit_service.dart';
+
 
 String _imgUrl(String? p) {
   if (p == null || p.isEmpty) return '';
@@ -488,6 +490,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
   late TextEditingController nameCtrl;
   late TextEditingController descCtrl;
   bool available = true;
+  bool hasIngredient = false;
   XFile? picked;
   bool removeImage = false;
   String? selectedCategoryId;
@@ -501,6 +504,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     nameCtrl = TextEditingController(text: it?['name'] ?? '');
     descCtrl = TextEditingController(text: it?['description'] ?? '');
     available = (it?['available'] as bool?) ?? true;
+    hasIngredient = (it?['hasIngredient'] as bool?) ?? false;
     selectedCategoryId = it?['category']?['_id']?.toString();
 
     final vs = (it?['variants'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -509,9 +513,12 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     } else {
       for (final v in vs) {
         rows.add(_VariantRow(
-            unit: v['unit']?.toString() ?? '',
-            price: (v['price'] as num?)?.toString() ?? ''));
+          unit: v['unit']?.toString() ?? '',
+          qty: v['quantity']?.toString() ?? '',
+          price: (v['price'] as num?)?.toString() ?? '',
+        ));
       }
+
     }
   }
 
@@ -521,6 +528,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     descCtrl.dispose();
     for (final r in rows) {
       r.unitCtrl.dispose();
+      r.qtyCtrl.dispose();
       r.priceCtrl.dispose();
     }
     super.dispose();
@@ -531,16 +539,35 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
 
   List<Map<String, dynamic>> _collectVariants() {
     final out = <Map<String, dynamic>>[];
+
     for (final r in rows) {
       final u = r.unitCtrl.text.trim();
+      final q = r.qtyCtrl.text.trim();
       final p = r.priceCtrl.text.trim();
-      if (u.isEmpty || p.isEmpty) continue;
-      final val = double.tryParse(p);
-      if (val == null || val < 0) continue;
-      out.add({'unit': u, 'price': val});
+
+      if (u.isEmpty || q.isEmpty || p.isEmpty) continue;
+
+      final qtyNum = int.tryParse(q);
+      final priceNum = double.tryParse(p);
+
+      if (qtyNum == null || qtyNum < 0) continue;
+      if (priceNum == null || priceNum < 0) continue;
+
+      out.add({
+        'unit': u,
+        'quantity': qtyNum,
+        'price': priceNum,
+        'stockQuantity': 0,
+        'autoStock': true,
+        'alertThreshold': 5,
+        'hasIngredient': false,
+      });
     }
+
     return out;
   }
+
+
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -566,9 +593,13 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     final m = http.MultipartRequest(isEdit ? 'PUT' : 'POST', uri)
       ..headers.addAll(widget.headers())
       ..fields['name'] = nameCtrl.text.trim()
+      ..fields['description'] = descCtrl.text.trim()
       ..fields['available'] = available.toString()
       ..fields['variants'] = jsonEncode(variants)
-      ..fields['categoryId'] = selectedCategoryId!;
+      ..fields['categoryId'] = selectedCategoryId!
+      ..fields['hasIngredient'] = hasIngredient.toString()
+      ..fields['usesStock'] = 'true'
+      ..fields['stockType'] = 'direct';
 
     final d = descCtrl.text.trim();
     if (d.isNotEmpty) m.fields['description'] = d;
@@ -683,6 +714,14 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
                     label: const Text('Add Variant'),
                   ),
                   const SizedBox(height: 12),
+                  CheckboxListTile(
+                    value: hasIngredient,
+                    onChanged: (v) => setState(() => hasIngredient = v ?? false),
+                    title: const Text('Has Ingredient'),
+                    activeColor: const Color(0xFFFF7043),
+                  ),
+                  const SizedBox(height: 12),
+
                   Row(
                     children: [
                       Expanded(
@@ -707,13 +746,14 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     );
   }
 }
-
 class _VariantRow extends StatefulWidget {
   final TextEditingController unitCtrl;
+  final TextEditingController qtyCtrl;
   final TextEditingController priceCtrl;
 
-  _VariantRow({String? unit, String? price})
-      : unitCtrl = TextEditingController(text: unit),
+  _VariantRow({String? unit, String? qty, String? price})
+      : unitCtrl = TextEditingController(text: unit ?? ''),
+        qtyCtrl = TextEditingController(text: qty ?? ''),
         priceCtrl = TextEditingController(text: price ?? '');
 
   @override
@@ -721,27 +761,120 @@ class _VariantRow extends StatefulWidget {
 }
 
 class _VariantRowState extends State<_VariantRow> {
+  List<String> presetUnits = [
+    'plate',
+    'piece',
+    'bottle',
+    'ml',
+    'liter',
+    'gram',
+    'kg',
+    'packet',
+    'cup',
+    'bowl',
+    'slice',
+    'custom',
+  ];
+
+  String? selectedUnit;
+  List<String> customUnits = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomUnits();
+    final current = widget.unitCtrl.text.trim().toLowerCase();
+    if (presetUnits.contains(current)) {
+      selectedUnit = current;
+    } else if (current.isNotEmpty) {
+      selectedUnit = 'custom';
+    }
+  }
+
+  Future<void> _loadCustomUnits() async {
+    final saved = await UnitService.getSavedUnits();
+    setState(() {
+      customUnits = saved;
+    });
+  }
+
+  Future<void> _saveCustomUnit(String unit) async {
+    await UnitService.saveUnit(unit);
+    await _loadCustomUnits();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final unitsDropdown = [...presetUnits];
+    unitsDropdown.insertAll(unitsDropdown.length - 1, customUnits);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
+          // Unit
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedUnit,
+                  decoration: const InputDecoration(labelText: 'Unit'),
+                  items: unitsDropdown.map((u) {
+                    return DropdownMenuItem(
+                      value: u == '' ? 'custom' : u,
+                      child: Text(u == 'custom' ? 'Custom Unit' : u),
+                    );
+                  }).toList(),
+                  onChanged: (v) {
+                    setState(() {
+                      selectedUnit = v;
+                      if (v != 'custom') {
+                        widget.unitCtrl.text = v ?? '';
+                      } else {
+                        widget.unitCtrl.text = '';
+                      }
+                    });
+                  },
+                ),
+                if (selectedUnit == 'custom')
+                  TextFormField(
+                    controller: widget.unitCtrl,
+                    decoration: const InputDecoration(labelText: 'Custom Unit Name'),
+                    onFieldSubmitted: (val) {
+                      final name = val.trim();
+                      if (name.isNotEmpty) _saveCustomUnit(name);
+                    },
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Quantity
           Expanded(
             flex: 2,
             child: TextFormField(
-              controller: widget.unitCtrl,
-              decoration: const InputDecoration(labelText: 'Unit'),
+              controller: widget.qtyCtrl,
+              decoration: const InputDecoration(labelText: 'Qty'),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
             ),
           ),
+
           const SizedBox(width: 8),
+
+          // Price
           Expanded(
             flex: 2,
             child: TextFormField(
               controller: widget.priceCtrl,
               decoration: const InputDecoration(labelText: 'Price'),
-              keyboardType:
-              const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
               ],

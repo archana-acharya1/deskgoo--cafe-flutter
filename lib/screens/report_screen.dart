@@ -58,6 +58,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
   DateTime? startDate;
   DateTime? endDate;
   bool newestFirst = true;
+  bool sortByQuantity = true; // ✅ NEW — sort mode for Top Items
 
   @override
   void initState() {
@@ -88,17 +89,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
     }
 
     List<dynamic> data = json.decode(response.body);
-    if (endpoint == 'sales/summary' || endpoint == 'sales/top-items') {
+
+    // ✅ Improved sorting logic
+    if (endpoint == 'sales/summary') {
+      // Sort by date (newestFirst)
       data.sort((a, b) {
-        DateTime dateA = endpoint == 'sales/summary'
-            ? DateTime.parse(a['_id']['period'])
-            : DateTime.now();
-        DateTime dateB = endpoint == 'sales/summary'
-            ? DateTime.parse(b['_id']['period'])
-            : DateTime.now();
+        DateTime dateA = DateTime.parse(a['_id']['period']);
+        DateTime dateB = DateTime.parse(b['_id']['period']);
         return newestFirst ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
       });
+    } else if (endpoint == 'sales/top-items') {
+      // Sort by quantity or revenue
+      data.sort((a, b) {
+        if (sortByQuantity) {
+          return (b['totalQuantity'] ?? 0).compareTo(a['totalQuantity'] ?? 0);
+        } else {
+          return (b['totalRevenue'] ?? 0).compareTo(a['totalRevenue'] ?? 0);
+        }
+      });
     }
+
     return data;
   }
 
@@ -140,6 +150,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
     });
   }
 
+  // ✅ New toggle for quantity/revenue sort
+  void _toggleSortByMetric() {
+    setState(() {
+      sortByQuantity = !sortByQuantity;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     const orange = Color(0xFFFF7043);
@@ -175,6 +192,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
             ),
             onPressed: _toggleSort,
             tooltip: 'Sort by date',
+          ),
+          IconButton(
+            icon: Icon(
+              sortByQuantity ? Icons.format_list_numbered : Icons.attach_money,
+              color: Colors.white,
+            ),
+            onPressed: _toggleSortByMetric,
+            tooltip: sortByQuantity ? 'Sort by Revenue' : 'Sort by Quantity',
           ),
         ],
         centerTitle: true,
@@ -215,32 +240,36 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
+                // --- Summary ---
                 reportListWidget('sales/summary', (item) => _buildCard(
                   title: item['_id']['period'] ?? '',
                   subtitle: 'Orders: ${item['totalOrders']}',
-                  trailing:
-                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
+
+                // --- Top Items ---
                 reportListWidget('sales/top-items', (item) => _buildCard(
                   title: item['name'] ?? '',
                   subtitle: 'Qty Sold: ${item['totalQuantity']}',
-                  trailing:
-                  'Revenue: ${item['totalRevenue'].toStringAsFixed(2)}',
+                  trailing: 'Revenue: ${item['totalRevenue'].toStringAsFixed(2)}',
                 )),
+
+                // --- By Category ---
                 reportListWidget('sales/by-category', (item) => _buildCard(
                   title: item['_id'] ?? '',
-                  trailing:
-                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
+
+                // --- By Area ---
                 reportListWidget('sales/by-area', (item) => _buildCard(
                   title: item['_id'] ?? '',
-                  trailing:
-                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
+
+                // --- By Table ---
                 reportListWidget('sales/by-table', (item) => _buildCard(
                   title: item['_id'] ?? '',
-                  trailing:
-                  'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
                 )),
               ],
             ),
@@ -281,7 +310,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
             ? Text(
           trailing,
           style: const TextStyle(
-              fontWeight: FontWeight.bold, color: Color(0xFFFF7043)),
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFFF7043),
+          ),
         )
             : null,
       ),

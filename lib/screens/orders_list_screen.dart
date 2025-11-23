@@ -418,6 +418,37 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
+  Future<void> _cancelOrder(String orderId) async {
+    try {
+      final r = await http.patch(
+        Uri.parse('${AppConfig.apiBase}/orders/$orderId/cancel'),
+        headers: _headers(),
+        body: jsonEncode({
+          "cancelReason": "Cancelled from app",
+        }),
+      );
+
+      if (r.statusCode ~/ 100 != 2) {
+        throw Exception(
+          'Cancel failed (${r.statusCode}): ${r.body}',
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order Cancelled')),
+        );
+        ref.refresh(ordersProvider);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+
+
   Future<void> bulkCheckoutSelected({required bool force}) async {
     if (_selectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -810,8 +841,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
-  // -------------------- END INVOICE HELPERS --------------------
-
   Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
     final id = (o['_id'] ?? '').toString();
     final table = (o['table']?['name'] ?? '—').toString();
@@ -821,6 +850,11 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final paid = (o['paidAmount'] ?? 0.0).toString();
     final due = (o['dueAmount'] ?? 0.0).toString();
     final isCheckedOut = (o['checkedOut'] ?? false) == true;
+    final statusText = (o['status'] ?? '').toString().toLowerCase();
+    final isCancelled = statusText == 'cancelled';
+
+
+
     final dynamicOrderId = o['orderId'];
     final clientNo = totalLen - originalIndex - 1;
     final orderNoText = (dynamicOrderId is num || dynamicOrderId is String)
@@ -842,12 +876,15 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
           if (_selectMode) {
             _toggleSelected(id);
           } else {
-            if (isCheckedOut) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text(
-                      'This order is already checked out and can’t be edited.')));
+            if (isCheckedOut || isCancelled) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('This order is already checked out or cancelled and can’t be edited.'),
+                ),
+              );
               return;
             }
+
             Navigator.push<bool>(
               context,
               MaterialPageRoute(
@@ -934,6 +971,24 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                                       color: Colors.green)),
                             ),
                           ],
+                          if (isCancelled) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(.08),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                    color: Colors.red.withOpacity(.25)),
+                              ),
+                              child: const Text('cancelled',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.red)),
+                            ),
+                          ],
                         ]),
                         const SizedBox(height: 6),
                         Text(
@@ -950,10 +1005,8 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                     PopupMenuButton<String>(
                       onSelected: (v) async {
                         if (v == 'set_payment') {
-                          // Set payment (same as checkout flow but only sets payment method)
                           final pm = await _selectPaymentMethodDialog(o);
                           if (pm == null) return;
-                          // apply it with a backend update (not checkout) to keep order updated
                           final id = (o['_id'] ?? '').toString();
                           try {
                             final r = await http.put(
@@ -961,7 +1014,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                               headers: _headers(),
                               body: jsonEncode({
                                 'paymentMethod': pm,
-                                // if single method and not credit mark paymentStatus=Paid; if credit, mark Credit
                                 'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
                               }),
                             );
@@ -978,45 +1030,68 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
                           }
                         }
+
                         if (v == 'edit') {
-                          if (isCheckedOut) {
+                          if (isCheckedOut || isCancelled) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'This order is already checked out and can’t be edited.')));
+                              const SnackBar(content: Text('This order is already checked out or cancelled and can’t be edited.')),
+                            );
                             return;
                           }
                           final changed = await Navigator.push<bool>(
                             context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    OrderScreen(isEdit: true, order: o)),
+                            MaterialPageRoute(builder: (_) => OrderScreen(isEdit: true, order: o)),
                           );
                           if (changed == true && mounted)
                             ref.refresh(ordersProvider);
                         }
+
                         if (v == 'print') await _printOrder(o);
-                        if (v == 'checkout') await _checkoutOrder(o);
+
+                        if (v == 'checkout') {
+                          if (isCancelled) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Cancelled order cannot be checked out.')),
+                            );
+                            return;
+                          }
+                          await _checkoutOrder(o);
+                        }
+
                         if (v == 'mark_paid') {
                           await _markPaid(o);
                           if (mounted) ref.refresh(ordersProvider);
                         }
+
+                        if (v == 'cancel') {
+                          if (isCancelled) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Order is already cancelled.')),
+                            );
+                            return;
+                          }
+                          try {
+                            await _cancelOrder(id);
+                            if (mounted) {
+                              ref.refresh(ordersProvider);
+                              setState(() {}); // rebuild card to show Cancelled badge
+                            }
+                          } catch (e) {
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cancel failed: $e')));
+                          }
+                        }
+
                         if (v == 'delete') {
                           try {
                             await _deleteOrder(id);
                             if (mounted) ref.refresh(ordersProvider);
                           } catch (e) {
-                            if (mounted)
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Delete failed: $e')));
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
                           }
                         }
-                        if (v == 'view_invoice') {
-                          await _viewInvoice(o);
-                        }
-                        if (v == 'print_invoice') {
-                          await _printInvoice(o);
-                        }
+
+                        if (v == 'view_invoice') await _viewInvoice(o);
+                        if (v == 'print_invoice') await _printInvoice(o);
                       },
                       itemBuilder: (_) {
                         final items = <PopupMenuEntry<String>>[
@@ -1025,14 +1100,20 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                           const PopupMenuItem(value: 'print', child: Text('Print')),
                         ];
 
-                        // invoice options: only show if receipt printed / checked out
                         if (isCheckedOut) {
                           items.add(const PopupMenuItem(value: 'view_invoice', child: Text('View Invoice')));
                           items.add(const PopupMenuItem(value: 'print_invoice', child: Text('Print Invoice')));
                         }
 
-                        if (!isCheckedOut) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
-                        if (_canManage && status != 'Paid' && !isCheckedOut)
+                        if (!isCheckedOut && !isCancelled) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
+
+                        if (_canManage && !isCheckedOut && !isCancelled)
+                          items.add(const PopupMenuItem(
+                            value: 'cancel',
+                            child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
+                          ));
+
+                        if (_canManage && status != 'Paid' && !isCheckedOut && !isCancelled)
                           items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
                         if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
                         return items;
@@ -1046,6 +1127,7 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {

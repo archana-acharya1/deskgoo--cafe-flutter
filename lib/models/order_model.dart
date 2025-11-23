@@ -9,7 +9,7 @@ class OrderItemModel {
   final int quantity;
 
   const OrderItemModel({
-    required this.id,
+    required this.id, 
     required this.name,
     required this.unitName,
     required this.price,

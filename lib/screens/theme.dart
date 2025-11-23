@@ -11,3 +11,4 @@ class AppTheme {
   static const Color warning = Colors.amber;
   static const Color danger = Colors.red;
 }
+
