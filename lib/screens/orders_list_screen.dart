@@ -369,40 +369,67 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     );
   }
 
+  // Future<void> _checkoutOrder(Map<String, dynamic> order) async {
+  //   final id = (order['_id'] ?? '').toString();
+  //   if (id.isEmpty) return;
+  //   final paymentMethod = await _selectPaymentMethodDialog(order);
+  //   if (paymentMethod == null) return;
+  //   String paymentStatus = 'Paid';
+  //   if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
+  //     paymentStatus = 'Credit';
+  //   }
+  //   try {
+  //     final r = await http.patch(
+  //       Uri.parse('${AppConfig.apiBase}/orders/$id/checkout'),
+  //       headers: _headers(),
+  //       body: jsonEncode({
+  //         "force": true,
+  //         "paymentMethod": paymentMethod,
+  //         "paymentStatus": paymentStatus,
+  //       }),
+  //     );
+  //     if (r.statusCode ~/ 100 != 2) {
+  //       throw Exception(_serverMsg('Checkout failed', r.statusCode, r.body));
+  //     }
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text('Checked out via ${paymentMethod['method']}')),
+  //     );
+  //     ref.refresh(ordersProvider);
+  //   } catch (e) {
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context)
+  //         .showSnackBar(SnackBar(content: Text(e.toString())));
+  //   }
+  // }
   Future<void> _checkoutOrder(Map<String, dynamic> order) async {
     final id = (order['_id'] ?? '').toString();
     if (id.isEmpty) return;
-
-    final paymentMethod = await _selectPaymentMethodDialog(order);
-    if (paymentMethod == null) return;
-
-    String paymentStatus = 'Paid';
-    if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
-      paymentStatus = 'Credit';
-    }
 
     try {
       final r = await http.patch(
         Uri.parse('${AppConfig.apiBase}/orders/$id/checkout'),
         headers: _headers(),
-        body: jsonEncode({
-          "force": true,
-          "paymentMethod": paymentMethod,
-          "paymentStatus": paymentStatus,
-        }),
+        body: jsonEncode({}),
       );
+
       if (r.statusCode ~/ 100 != 2) {
-        throw Exception(_serverMsg('Checkout failed', r.statusCode, r.body));
+        final msg = r.body.isNotEmpty ? r.body : 'Checkout failed';
+        throw Exception(msg);
       }
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Checked out via ${paymentMethod['method']}')),
-      );
+
       ref.refresh(ordersProvider);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order checked out successfully')),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Checkout failed: $e')),
+      );
     }
   }
 
@@ -837,8 +864,10 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final total = (o['totalAmount'] ?? 0.0).toString();
     final paid = (o['paidAmount'] ?? 0.0).toString();
     final due = (o['dueAmount'] ?? 0.0).toString();
-    final isCheckedOut = (o['checkedOut'] ?? false) == true;
+    // final isCheckedOut = (o['checkedOut'] ?? false) == true;
     final statusText = (o['status'] ?? '').toString().toLowerCase();
+    final isCheckedOut = (o['status'] ?? '').toString().toLowerCase() == 'checkedout';
+
     final isCancelled = statusText == 'cancelled';
 
 

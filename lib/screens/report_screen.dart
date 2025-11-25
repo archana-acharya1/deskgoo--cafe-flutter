@@ -201,6 +201,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
           'Sales Reports',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
+        centerTitle: true,
 
         bottom: TabBar(
           controller: _tabController,
