@@ -1,4 +1,3 @@
-// lib/screens/orders_list_screen.dart
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -134,24 +133,20 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     if (mounted) ref.refresh(ordersProvider);
   }
 
-  /// Shows dialog to select payment method.
-  /// Returns a Map shaped like your backend paymentMethod schema or null on cancel.
   Future<Map<String, dynamic>?> _selectPaymentMethodDialog(
       Map<String, dynamic> order,
       ) async {
-    String? method = 'cash'; // default
-    String? othersCombo; // cash-card, cash-online, card-online
+    String? method = 'cash';
+    String? othersCombo;
     final TextEditingController splitAController = TextEditingController();
     final TextEditingController splitBController = TextEditingController();
 
-    // Pre-fill amounts: use finalAmount if present else totalAmount
     final double orderAmount = (order['finalAmount'] is num)
         ? (order['finalAmount'] as num).toDouble()
         : ((order['totalAmount'] is num)
         ? (order['totalAmount'] as num).toDouble()
         : 0.0);
 
-    // helper to show validation error
     void showErr(String msg) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
@@ -307,7 +302,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
               ),
               ElevatedButton(
                 onPressed: () {
-                  // validation + prepare payload
                   if (method == null) {
                     showErr('Select a payment method');
                     return;
@@ -335,7 +329,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                           'Split total (${total.toStringAsFixed(2)}) must equal order amount (${orderAmount.toStringAsFixed(2)})');
                       return;
                     }
-                    // assign to split based on combo
                     if (othersCombo == 'cash-card') {
                       split['cash'] = a;
                       split['card'] = b;
@@ -348,10 +341,7 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                     }
                     othersField = othersCombo;
                   } else if (method == 'credit') {
-                    // credit: no split amounts
-                    // leave split as zeros
                   } else {
-                    // single method: give full amount to that method
                     final amt = orderAmount;
                     if (method == 'cash') split['cash'] = amt;
                     if (method == 'card') split['card'] = amt;
@@ -383,11 +373,9 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final id = (order['_id'] ?? '').toString();
     if (id.isEmpty) return;
 
-    // 1) Ask payment method (supports split)
     final paymentMethod = await _selectPaymentMethodDialog(order);
     if (paymentMethod == null) return;
 
-    // Determine paymentStatus: if user explicitly chose 'credit' mark Credit; else Paid
     String paymentStatus = 'Paid';
     if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
       paymentStatus = 'Credit';

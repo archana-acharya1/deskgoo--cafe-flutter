@@ -58,17 +58,52 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
   DateTime? startDate;
   DateTime? endDate;
   bool newestFirst = true;
-  bool sortByQuantity = true; // ✅ NEW — sort mode for Top Items
+  bool sortByQuantity = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+
+    _tabController = TabController(length: 6, vsync: this);
+  }
+
+  Future<Map<String, dynamic>> fetchDailyItemsReport() async {
+    final auth = ref.read(authStateProvider);
+    if (auth == null) throw Exception('Not authenticated');
+
+    if (startDate == null && endDate == null) {
+      return {};
+    }
+
+    Map<String, String> query = {};
+    if (startDate != null) query['startDate'] = startDate!.toIso8601String();
+    if (endDate != null) query['endDate'] = endDate!.toIso8601String();
+
+    String url = '${AppConfig.apiBase}/reports/daily-items';
+    if (query.isNotEmpty) {
+      url += '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&');
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {'Authorization': 'Bearer ${auth.token}'},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load report');
+    }
+
+    final decoded = json.decode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
   }
 
   Future<List<dynamic>> fetchReport(String endpoint) async {
     final auth = ref.read(authStateProvider);
     if (auth == null) throw Exception('Not authenticated');
+
+    if (startDate == null && endDate == null) {
+      return [];
+    }
 
     Map<String, String> query = {};
     if (startDate != null) query['startDate'] = startDate!.toIso8601String();
@@ -90,16 +125,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
 
     List<dynamic> data = json.decode(response.body);
 
-    // ✅ Improved sorting logic
     if (endpoint == 'sales/summary') {
-      // Sort by date (newestFirst)
       data.sort((a, b) {
         DateTime dateA = DateTime.parse(a['_id']['period']);
         DateTime dateB = DateTime.parse(b['_id']['period']);
         return newestFirst ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
       });
     } else if (endpoint == 'sales/top-items') {
-      // Sort by quantity or revenue
       data.sort((a, b) {
         if (sortByQuantity) {
           return (b['totalQuantity'] ?? 0).compareTo(a['totalQuantity'] ?? 0);
@@ -150,7 +182,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
     });
   }
 
-  // ✅ New toggle for quantity/revenue sort
   void _toggleSortByMetric() {
     setState(() {
       sortByQuantity = !sortByQuantity;
@@ -170,13 +201,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
           'Sales Reports',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
+
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
+
           tabs: const [
+            Tab(text: 'Daily Items'),
             Tab(text: 'Summary'),
             Tab(text: 'Top Items'),
             Tab(text: 'By Category'),
@@ -184,6 +218,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
             Tab(text: 'By Table'),
           ],
         ),
+
         actions: [
           IconButton(
             icon: Icon(
@@ -199,82 +234,166 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
               color: Colors.white,
             ),
             onPressed: _toggleSortByMetric,
-            tooltip: sortByQuantity ? 'Sort by Revenue' : 'Sort by Quantity',
+            tooltip:
+            sortByQuantity ? 'Sort by Revenue' : 'Sort by Quantity',
           ),
         ],
-        centerTitle: true,
       ),
+
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-            color: Colors.white,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _styledButton(
-                    label: startDate == null
-                        ? 'Start Date'
-                        : startDate!.toLocal().toString().split(' ')[0],
-                    onPressed: () => _pickDate(context, true),
-                  ),
-                  const SizedBox(width: 8),
-                  _styledButton(
-                    label: endDate == null
-                        ? 'End Date'
-                        : endDate!.toLocal().toString().split(' ')[0],
-                    onPressed: () => _pickDate(context, false),
-                  ),
-                  const SizedBox(width: 8),
-                  _styledButton(label: 'Last 7 Days', onPressed: _refreshLast7Days),
-                  const SizedBox(width: 8),
-                  _styledButton(label: 'Refresh', onPressed: () => setState(() {})),
-                  const SizedBox(width: 8),
-                  _styledButton(label: 'Clear', onPressed: _clearDates),
-                ],
-              ),
-            ),
-          ),
+          _dateSelectorUI(),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                // --- Summary ---
-                reportListWidget('sales/summary', (item) => _buildCard(
-                  title: item['_id']['period'] ?? '',
-                  subtitle: 'Orders: ${item['totalOrders']}',
-                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
-                )),
+                _dailyItemsTab(),
 
-                // --- Top Items ---
-                reportListWidget('sales/top-items', (item) => _buildCard(
-                  title: item['name'] ?? '',
-                  subtitle: 'Qty Sold: ${item['totalQuantity']}',
-                  trailing: 'Revenue: ${item['totalRevenue'].toStringAsFixed(2)}',
-                )),
+                reportListWidget(
+                  'sales/summary',
+                      (item) => _buildCard(
+                    title: item['_id']['period'] ?? '',
+                    subtitle: 'Orders: ${item['totalOrders']}',
+                    trailing:
+                    'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  ),
+                ),
 
-                // --- By Category ---
-                reportListWidget('sales/by-category', (item) => _buildCard(
-                  title: item['_id'] ?? '',
-                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
-                )),
+                reportListWidget(
+                  'sales/top-items',
+                      (item) => _buildCard(
+                    title: item['name'] ?? '',
+                    subtitle: 'Qty Sold: ${item['totalQuantity']}',
+                    trailing:
+                    'Revenue: ${item['totalRevenue'].toStringAsFixed(2)}',
+                  ),
+                ),
 
-                // --- By Area ---
-                reportListWidget('sales/by-area', (item) => _buildCard(
-                  title: item['_id'] ?? '',
-                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
-                )),
+                reportListWidget(
+                  'sales/by-category',
+                      (item) => _buildCard(
+                    title: item['_id'] ?? '',
+                    trailing:
+                    'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  ),
+                ),
 
-                // --- By Table ---
-                reportListWidget('sales/by-table', (item) => _buildCard(
-                  title: item['_id'] ?? '',
-                  trailing: 'Total: ${item['totalSales'].toStringAsFixed(2)}',
-                )),
+                reportListWidget(
+                  'sales/by-area',
+                      (item) => _buildCard(
+                    title: item['_id'] ?? '',
+                    trailing:
+                    'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  ),
+                ),
+
+                reportListWidget(
+                  'sales/by-table',
+                      (item) => _buildCard(
+                    title: item['_id'] ?? '',
+                    trailing:
+                    'Total: ${item['totalSales'].toStringAsFixed(2)}',
+                  ),
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _dailyItemsTab() {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: fetchDailyItemsReport(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text(
+              "Choose the date",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        return _buildDailyItemsList(snapshot.data!);
+      },
+    );
+  }
+
+  Widget _buildDailyItemsList(Map<String, dynamic> data) {
+    final dates = data.keys.toList();
+
+    return ListView.builder(
+      itemCount: dates.length,
+      itemBuilder: (context, index) {
+        final date = dates[index];
+        final items = data[date] as List;
+
+        return Card(
+          margin: const EdgeInsets.all(10),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          elevation: 3,
+          child: ExpansionTile(
+            title: Text(
+              date,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            children: items.map((item) {
+              return ListTile(
+                title: Text(item['item']),
+                subtitle: Text("Qty: ${item['quantity']}"),
+                trailing: Text(
+                  "Rs ${item['revenue']}",
+                  style: const TextStyle(
+                    color: Color(0xFFFF7043),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _dateSelectorUI() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      color: Colors.white,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _styledButton(
+              label: startDate == null
+                  ? 'Start Date'
+                  : startDate!.toLocal().toString().split(' ')[0],
+              onPressed: () => _pickDate(context, true),
+            ),
+            const SizedBox(width: 8),
+            _styledButton(
+              label: endDate == null
+                  ? 'End Date'
+                  : endDate!.toLocal().toString().split(' ')[0],
+              onPressed: () => _pickDate(context, false),
+            ),
+            const SizedBox(width: 8),
+            _styledButton(label: 'Last 7 Days', onPressed: _refreshLast7Days),
+            const SizedBox(width: 8),
+            _styledButton(label: 'Refresh', onPressed: () => setState(() {})),
+            const SizedBox(width: 8),
+            _styledButton(label: 'Clear', onPressed: _clearDates),
+          ],
+        ),
       ),
     );
   }
@@ -287,7 +406,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding:
+        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         elevation: 2,
       ),
       onPressed: onPressed,
@@ -299,7 +419,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
     return Card(
       elevation: 3,
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape:
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         title: Text(
           title,
@@ -326,10 +447,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text(
+              'Choose the date',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          );
         } else if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('No data available'));
         }
 
         final data = snapshot.data!;

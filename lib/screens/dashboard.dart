@@ -24,8 +24,26 @@ class Dashboard extends ConsumerStatefulWidget {
   ConsumerState<Dashboard> createState() => _DashboardState();
 }
 
-class _DashboardState extends ConsumerState<Dashboard> {
+class _DashboardState extends ConsumerState<Dashboard> with WidgetsBindingObserver {
   String selectedMenu = 'Home';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this); // Observe app lifecycle
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+    }
+  }
 
   bool get _canSeeUsers {
     final authState = ref.watch(authStateProvider);
@@ -141,9 +159,8 @@ class _DashboardState extends ConsumerState<Dashboard> {
         return const ReportsScreen();
       case 'Ingredients':
         return const IngredientScreen();
-        case 'Daily-Stock':
+      case 'Daily-Stock':
         return const DailyStockScreen();
-
       case 'Settings':
         return RestaurantSettingsScreen(
           token: authState!.token,
@@ -204,7 +221,6 @@ class _DashboardState extends ConsumerState<Dashboard> {
                   drawerItem('Users', Icons.supervised_user_circle),
                 if (_canSeeSettings)
                   drawerItem('Settings', Icons.settings),
-
               ],
             ),
           ),

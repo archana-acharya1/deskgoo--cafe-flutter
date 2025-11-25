@@ -47,6 +47,7 @@ dependencies:
   flutter_native_splash: ^2.4.7
   flutter_launcher_icons: ^0.14.4
   intl: any
+  flutter_secure_storage: ^9.2.4
 #  bluetooth_print: ^4.3.0
 
 

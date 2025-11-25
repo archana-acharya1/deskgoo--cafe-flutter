@@ -19,8 +19,9 @@ class DailyStockScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Daily Stock"),
-        backgroundColor: Colors.brown.shade700,
+        title: const Text("Daily Stock" , style: TextStyle(color: Colors.white)),
+        centerTitle: true,
+        backgroundColor: const Color(0xFFFF7043),
       ),
 
       body: stocksAsync.when(
@@ -60,8 +61,8 @@ class DailyStockScreen extends ConsumerWidget {
       ),
 
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.brown.shade700,
-        child: const Icon(Icons.add),
+        backgroundColor: Color(0xFFFF7043),
+        child: const Icon(Icons.add, color: Colors.white),
         onPressed: () async {
           final added = await showModalBottomSheet(
             context: context,
@@ -77,3 +78,4 @@ class DailyStockScreen extends ConsumerWidget {
     );
   }
 }
+
