@@ -48,6 +48,7 @@ dependencies:
   flutter_launcher_icons: ^0.14.4
   intl: any
   flutter_secure_storage: ^9.2.4
+  dropdown_search: ^6.0.2
 #  bluetooth_print: ^4.3.0
 
 

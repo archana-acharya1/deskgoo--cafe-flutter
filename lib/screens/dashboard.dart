@@ -1,6 +1,7 @@
 import 'package:deskgoo_cafe_v2/providers/socket_provider.dart';
 import 'package:deskgoo_cafe_v2/screens/daily_stock_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/home_page.dart';
+import 'package:deskgoo_cafe_v2/screens/item_stock_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/report_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/table_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/users_page.dart';
@@ -13,7 +14,7 @@ import 'login_page.dart';
 import '../state/auth.dart';
 import 'order_screen.dart';
 import 'orders_list_screen.dart';
-import 'stock_screen.dart';
+// import 'stock_screen.dart';
 import 'restaurant_settings_screen.dart';
 import 'ingredient_screen.dart';
 
@@ -151,16 +152,18 @@ class _DashboardState extends ConsumerState<Dashboard> with WidgetsBindingObserv
         return const HomePage();
       case 'Users':
         return const UsersPage();
-      case 'Stock':
-        return const StockScreen();
+      // case 'Stock':
+      //   return const StockScreen();
       case 'Categories':
         return const CategoryScreen();
       case 'Reports':
         return const ReportsScreen();
-      case 'Ingredients':
-        return const IngredientScreen();
-      case 'Daily-Stock':
-        return const DailyStockScreen();
+      // case 'Ingredients':
+      //   return const IngredientScreen();
+      // case 'Daily-Stock':
+      //   return const DailyStockScreen();
+        case 'Item-Stock':
+        return const ItemStockScreen();
       case 'Settings':
         return RestaurantSettingsScreen(
           token: authState!.token,
@@ -213,9 +216,10 @@ class _DashboardState extends ConsumerState<Dashboard> with WidgetsBindingObserv
                 drawerItem('Tables', Icons.table_bar),
                 drawerItem('New Order', Icons.add_shopping_cart),
                 drawerItem('Orders', Icons.receipt),
-                drawerItem('Stock', Icons.inventory),
-                drawerItem('Ingredients', Icons.kitchen),
-                drawerItem('Daily-Stock', Icons.food_bank_sharp),
+                // drawerItem('Stock', Icons.inventory),
+                // drawerItem('Ingredients', Icons.kitchen),
+                // drawerItem('Daily-Stock', Icons.food_bank_sharp),
+                drawerItem('Item-Stock', Icons.inventory),
                 drawerItem('Reports', Icons.bar_chart),
                 if (_canSeeUsers)
                   drawerItem('Users', Icons.supervised_user_circle),

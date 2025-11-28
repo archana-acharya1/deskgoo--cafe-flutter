@@ -19,7 +19,7 @@ class DailyStockScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Daily Stock" , style: TextStyle(color: Colors.white)),
+        title: const Text("Daily-Stock" , style: TextStyle(color: Colors.white)),
         centerTitle: true,
         backgroundColor: const Color(0xFFFF7043),
       ),

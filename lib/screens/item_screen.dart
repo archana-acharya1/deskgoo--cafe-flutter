@@ -10,7 +10,6 @@ import '../config.dart';
 import '../services/socket_service.dart';
 import '../services/unit_service.dart';
 
-
 String _imgUrl(String? p) {
   if (p == null || p.isEmpty) return '';
   return p.startsWith('http')
@@ -79,7 +78,6 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
   @override
   void initState() {
     super.initState();
-
     final restaurantId = ref.read(authStateProvider)?.restaurantId ?? '';
     if (restaurantId.isNotEmpty) {
       _socketService.connect(AppConfig.socketBase, restaurantId);
@@ -99,6 +97,7 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
     _socketService.disconnect();
     super.dispose();
   }
+
   Future<void> _delete(String id) async {
     final r = await http.delete(
       Uri.parse('${AppConfig.apiBase}/items/$id'),
@@ -173,9 +172,7 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
                 final items = all.where((m) {
                   final n = (m['name'] ?? '').toString().toLowerCase();
                   final d = (m['description'] ?? '').toString().toLowerCase();
-                  return _query.isEmpty ||
-                      n.contains(_query) ||
-                      d.contains(_query);
+                  return _query.isEmpty || n.contains(_query) || d.contains(_query);
                 }).toList();
 
                 if (items.isEmpty) {
@@ -211,8 +208,7 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
                       final desc = (it['description'] ?? '').toString();
                       final url = _imgUrl(it['image'] as String?);
                       final variants =
-                          (it['variants'] as List?)?.cast<Map<String, dynamic>>() ??
-                              [];
+                          (it['variants'] as List?)?.cast<Map<String, dynamic>>() ?? [];
                       final available = (it['available'] as bool?) ?? true;
                       final catName = it['category']?['name'] ?? '';
 
@@ -267,12 +263,15 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
                                       final u = (v['unit'] ?? '').toString();
                                       final p =
                                           (v['price'] as num?)?.toDouble() ?? 0.0;
+                                      final c =
+                                          (v['conversion'] as num?)?.toString() ??
+                                              '1';
                                       return Padding(
                                         padding: const EdgeInsets.symmetric(
                                             vertical: 2),
                                         child: Text(u.isEmpty
-                                            ? 'Rs ${p.toStringAsFixed(2)}'
-                                            : '$u — Rs ${p.toStringAsFixed(2)}'),
+                                            ? 'Rs ${p.toStringAsFixed(2)} (Conversion: $c)'
+                                            : '$u — Rs ${p.toStringAsFixed(2)} (Conversion: $c)'),
                                       );
                                     }),
                                   ],
@@ -369,8 +368,7 @@ class _ItemScreenState extends ConsumerState<ItemScreen> {
                                                 ? 'No description'
                                                 : desc,
                                             maxLines: 2,
-                                            overflow:
-                                            TextOverflow.ellipsis,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                                 fontSize: 12.5,
                                                 color:
@@ -490,7 +488,6 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
   late TextEditingController nameCtrl;
   late TextEditingController descCtrl;
   bool available = true;
-  bool hasIngredient = false;
   XFile? picked;
   bool removeImage = false;
   String? selectedCategoryId;
@@ -504,7 +501,6 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     nameCtrl = TextEditingController(text: it?['name'] ?? '');
     descCtrl = TextEditingController(text: it?['description'] ?? '');
     available = (it?['available'] as bool?) ?? true;
-    hasIngredient = (it?['hasIngredient'] as bool?) ?? false;
     selectedCategoryId = it?['category']?['_id']?.toString();
 
     final vs = (it?['variants'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -514,11 +510,11 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
       for (final v in vs) {
         rows.add(_VariantRow(
           unit: v['unit']?.toString() ?? '',
-          qty: v['quantity']?.toString() ?? '',
-          price: (v['price'] as num?)?.toString() ?? '',
+          qty: (v['quantity']?.toString() ?? ''),
+          price: (v['price']?.toString() ?? ''),
+          conversion: (v['conversion']?.toString() ?? '1'),
         ));
       }
-
     }
   }
 
@@ -530,6 +526,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
       r.unitCtrl.dispose();
       r.qtyCtrl.dispose();
       r.priceCtrl.dispose();
+      r.conversionCtrl.dispose();
     }
     super.dispose();
   }
@@ -539,35 +536,32 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
 
   List<Map<String, dynamic>> _collectVariants() {
     final out = <Map<String, dynamic>>[];
-
     for (final r in rows) {
       final u = r.unitCtrl.text.trim();
       final q = r.qtyCtrl.text.trim();
       final p = r.priceCtrl.text.trim();
-
-      if (u.isEmpty || q.isEmpty || p.isEmpty) continue;
+      final c = r.conversionCtrl.text.trim();
+      if (u.isEmpty || q.isEmpty || p.isEmpty || c.isEmpty) continue;
 
       final qtyNum = int.tryParse(q);
       final priceNum = double.tryParse(p);
+      final convNum = double.tryParse(c);
 
       if (qtyNum == null || qtyNum < 0) continue;
       if (priceNum == null || priceNum < 0) continue;
+      if (convNum == null || convNum <= 0) continue;
 
       out.add({
         'unit': u,
         'quantity': qtyNum,
         'price': priceNum,
+        'conversion': convNum,
         'stockQuantity': 0,
         'autoStock': true,
-        'alertThreshold': 5,
-        'hasIngredient': false,
       });
     }
-
     return out;
   }
-
-
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -581,180 +575,155 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
     final variants = _collectVariants();
     if (variants.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Add at least one valid unit & price')));
+          content: Text('Add at least one valid variant')));
       return;
     }
 
-    final isEdit = widget.item != null;
-    final uri = isEdit
-        ? Uri.parse('${AppConfig.apiBase}/items/${widget.item!['_id']}')
-        : Uri.parse('${AppConfig.apiBase}/items');
+    final uri = widget.item == null
+        ? Uri.parse('${AppConfig.apiBase}/items')
+        : Uri.parse('${AppConfig.apiBase}/items/${widget.item!['_id']}');
 
-    final m = http.MultipartRequest(isEdit ? 'PUT' : 'POST', uri)
+    final req = http.MultipartRequest(
+        widget.item == null ? 'POST' : 'PUT', uri)
       ..headers.addAll(widget.headers())
       ..fields['name'] = nameCtrl.text.trim()
       ..fields['description'] = descCtrl.text.trim()
       ..fields['available'] = available.toString()
-      ..fields['variants'] = jsonEncode(variants)
       ..fields['categoryId'] = selectedCategoryId!
-      ..fields['hasIngredient'] = hasIngredient.toString()
-      ..fields['usesStock'] = 'true'
-      ..fields['stockType'] = 'direct';
+      ..fields['variants'] = jsonEncode(variants);
 
-    final d = descCtrl.text.trim();
-    if (d.isNotEmpty) m.fields['description'] = d;
-
-    if (isEdit && removeImage) m.fields['removeImage'] = 'true';
     if (picked != null) {
-      m.files.add(await http.MultipartFile.fromPath('image', picked!.path,
-          filename: picked!.name));
+      req.files.add(await http.MultipartFile.fromPath('image', picked!.path));
+    } else if (removeImage) {
+      req.fields['removeImage'] = 'true';
     }
 
-    showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) =>
-        const Center(child: CircularProgressIndicator()));
-    try {
-      final s = await m.send();
-      final body = await s.stream.bytesToString();
-      if (mounted) Navigator.pop(context);
+    final res = await req.send();
+    final body = await res.stream.bytesToString();
 
-      if (s.statusCode ~/ 100 != 2) {
-        throw Exception(_serverMsg(
-            isEdit ? 'Update failed' : 'Create failed', s.statusCode, body));
-      }
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
+    if (res.statusCode ~/ 100 != 2) {
       if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Save failed: $body')));
       }
+      return;
     }
+
+    if (mounted) Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final cats = ref.watch(categoriesProvider);
+    final catsAsync = ref.watch(categoriesProvider);
 
-    return Padding(
-      padding: EdgeInsets.only(
-          left: 18,
-          right: 18,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 12,
-          top: 14),
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              height: 5,
-              width: 40,
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(3)),
-            ),
-            Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  TextFormField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                    validator: (v) =>
-                    v == null || v.isEmpty ? 'Required' : null,
-                  ),
-                  TextFormField(
-                    controller: descCtrl,
-                    decoration: const InputDecoration(labelText: 'Description'),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 12),
-                  cats.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Text('Category load error: $e'),
-                    data: (list) {
-                      if (selectedCategoryId != null &&
-                          !list.any((c) => c['_id'].toString() == selectedCategoryId)) {
-                        selectedCategoryId = null;
-                      }
-
-                      return DropdownButtonFormField<String>(
-                        decoration:
-                        const InputDecoration(labelText: 'Category'),
-                        value: selectedCategoryId,
-                        items: list
-                            .map((c) => DropdownMenuItem<String>(
-                          value: c['_id'].toString(),
-                          child: Text(c['name'].toString()),
-                        ))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) setState(() => selectedCategoryId = v);
-                        },
-                        validator: (v) =>
-                        v == null ? 'Select category' : null,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    value: available,
-                    onChanged: (v) => setState(() => available = v),
-                    title: const Text('Available'),
-                    activeColor: const Color(0xFFFF7043),
-                  ),
-                  const SizedBox(height: 8),
-                  ...rows.map((r) => r),
-                  TextButton.icon(
-                    onPressed: () =>
-                        setState(() => rows.add(_VariantRow())),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Variant'),
-                  ),
-                  const SizedBox(height: 12),
-                  CheckboxListTile(
-                    value: hasIngredient,
-                    onChanged: (v) => setState(() => hasIngredient = v ?? false),
-                    title: const Text('Has Ingredient'),
-                    activeColor: const Color(0xFFFF7043),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _submit,
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF7043)),
-                          child: Text(widget.item == null
-                              ? 'Create Item'
-                              : 'Save Changes'),
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Name'),
+                      validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Enter name' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: descCtrl,
+                      decoration: const InputDecoration(labelText: 'Description'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
+                    catsAsync.when(
+                      loading: () => const CircularProgressIndicator(),
+                      error: (e, _) => Text('Error: $e'),
+                      data: (list) {
+                        return DropdownButtonFormField<String>(
+                          decoration:
+                          const InputDecoration(labelText: 'Category'),
+                          value: selectedCategoryId,
+                          items: list
+                              .map((c) => DropdownMenuItem<String>(
+                            value: c['_id'].toString(),
+                            child: Text(c['name'].toString()),
+                          ))
+                              .toList(),
+                          onChanged: (v) {
+                            if (v != null) setState(() => selectedCategoryId = v);
+                          },
+                          validator: (v) =>
+                          v == null ? 'Select category' : null,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      value: available,
+                      onChanged: (v) => setState(() => available = v),
+                      title: const Text('Available'),
+                      activeColor: const Color(0xFFFF7043),
+                    ),
+                    const SizedBox(height: 8),
+                    ...rows.map((r) => r),
+                    TextButton.icon(
+                      onPressed: () =>
+                          setState(() => rows.add(_VariantRow())),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add Variant'),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _submit,
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF7043)),
+                            child: Text(widget.item == null
+                                ? 'Create Item'
+                                : 'Save Changes'),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+// ----------------- Variant Row -----------------
+
 class _VariantRow extends StatefulWidget {
   final TextEditingController unitCtrl;
   final TextEditingController qtyCtrl;
   final TextEditingController priceCtrl;
+  final TextEditingController conversionCtrl;
 
-  _VariantRow({String? unit, String? qty, String? price})
-      : unitCtrl = TextEditingController(text: unit ?? ''),
+  _VariantRow({
+    String? unit,
+    String? qty,
+    String? price,
+    String? conversion,
+    super.key,
+  })  : unitCtrl = TextEditingController(text: unit ?? ''),
         qtyCtrl = TextEditingController(text: qty ?? ''),
-        priceCtrl = TextEditingController(text: price ?? '');
+        priceCtrl = TextEditingController(text: price ?? ''),
+        conversionCtrl = TextEditingController(text: conversion ?? '1');
 
   @override
   State<_VariantRow> createState() => _VariantRowState();
@@ -810,77 +779,89 @@ class _VariantRowState extends State<_VariantRow> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          // Unit
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: selectedUnit,
-                  decoration: const InputDecoration(labelText: 'Unit'),
-                  items: unitsDropdown.map((u) {
-                    return DropdownMenuItem(
-                      value: u == '' ? 'custom' : u,
-                      child: Text(u == 'custom' ? 'Custom Unit' : u),
-                    );
-                  }).toList(),
-                  onChanged: (v) {
-                    setState(() {
-                      selectedUnit = v;
-                      if (v != 'custom') {
-                        widget.unitCtrl.text = v ?? '';
-                      } else {
-                        widget.unitCtrl.text = '';
-                      }
-                    });
-                  },
-                ),
-                if (selectedUnit == 'custom')
-                  TextFormField(
-                    controller: widget.unitCtrl,
-                    decoration: const InputDecoration(labelText: 'Custom Unit Name'),
-                    onFieldSubmitted: (val) {
-                      final name = val.trim();
-                      if (name.isNotEmpty) _saveCustomUnit(name);
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 120,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedUnit,
+                    decoration: const InputDecoration(labelText: 'Unit'),
+                    items: unitsDropdown.map((u) {
+                      return DropdownMenuItem(
+                        value: u == '' ? 'custom' : u,
+                        child: Text(u == 'custom' ? 'Custom Unit' : u),
+                      );
+                    }).toList(),
+                    onChanged: (v) {
+                      setState(() {
+                        selectedUnit = v;
+                        if (v != 'custom') {
+                          widget.unitCtrl.text = v ?? '';
+                        } else {
+                          widget.unitCtrl.text = '';
+                        }
+                      });
                     },
                   ),
-              ],
+                  if (selectedUnit == 'custom')
+                    TextFormField(
+                      controller: widget.unitCtrl,
+                      decoration:
+                      const InputDecoration(labelText: 'Custom Unit Name'),
+                      onFieldSubmitted: (val) {
+                        final name = val.trim();
+                        if (name.isNotEmpty) _saveCustomUnit(name);
+                      },
+                    ),
+                ],
+              ),
             ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Quantity
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              controller: widget.qtyCtrl,
-              decoration: const InputDecoration(labelText: 'Qty'),
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 80,
+              child: TextFormField(
+                controller: widget.qtyCtrl,
+                decoration: const InputDecoration(labelText: 'Qty'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+              ),
             ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Price
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              controller: widget.priceCtrl,
-              decoration: const InputDecoration(labelText: 'Price'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 100,
+              child: TextFormField(
+                controller: widget.priceCtrl,
+                decoration: const InputDecoration(labelText: 'Price'),
+                keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 100,
+              child: TextFormField(
+                controller: widget.conversionCtrl,
+                decoration:
+                const InputDecoration(labelText: 'Conversion Factor'),
+                keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
