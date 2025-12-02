@@ -46,9 +46,7 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (stocks) {
-          if (stocks.isEmpty) {
-            return const Center(child: Text('No stock added yet'));
-          }
+          if (stocks.isEmpty) return const Center(child: Text('No stock added yet'));
           return RefreshIndicator(
             onRefresh: () async => ref.refresh(itemStockProvider),
             child: ListView.builder(
@@ -56,72 +54,35 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
               itemCount: stocks.length,
               itemBuilder: (_, i) {
                 final s = stocks[i];
-                final name = s['item']?['name'] ?? '';
-                final variant = s['variantUnit'] ?? '';
+                final item = s['item'] ?? {};
+                final name = item['name'] ?? '';
+                final variants = (item['variants'] as List? ?? []);
                 final quantity = s['quantity']?.toString() ?? '0';
+
                 return Card(
                   child: ListTile(
-                    title: Text('$name ($variant)'),
-                    subtitle: Text(
-                        'Quantity: $quantity${_getConversionFactorText(s)}'),
+                    title: Text(name),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Stock: $quantity'),
+                        if (variants.isNotEmpty)
+                          Text(
+                            'Variants: ${variants.map((v) => "${v['unit']}(${v['stockQuantity'] ?? 0})").join(', ')}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                      ],
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit),
-                          onPressed: () => _showAddQuantityDialog(s),
+                          onPressed: () => _showUpdateQuantityDialog(s),
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                title: const Text('Delete Stock'),
-                                content: Text(
-                                    'Are you sure you want to delete $name ($variant) stock?'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                    ),
-                                    onPressed: () =>
-                                        Navigator.pop(context, true),
-                                    child: const Text('Delete'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (confirm != true) return;
-
-                            final token =
-                                ref.read(authStateProvider)?.token ?? '';
-                            final r = await http.delete(
-                              Uri.parse(
-                                  '${AppConfig.apiBase}/item-stock/${s['_id']}'),
-                              headers: {
-                                'Authorization': 'Bearer $token',
-                                'Accept': 'application/json',
-                              },
-                            );
-
-                            if (r.statusCode ~/ 100 == 2) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Stock deleted')),
-                              );
-                              ref.refresh(itemStockProvider);
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text('Failed to delete: ${r.body}')),
-                              );
-                            }
-                          },
+                          onPressed: () => _deleteStock(s['_id'], name),
                         ),
                       ],
                     ),
@@ -140,22 +101,42 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
     );
   }
 
-  // Helper to display conversion factor
-  String _getConversionFactorText(Map<String, dynamic> stock) {
-    final variants = stock['item']?['variants'] as List? ?? [];
-    final variant = variants.firstWhere(
-            (v) => v['unit'] == stock['variantUnit'],
-        orElse: () => null);
-    if (variant == null) return '';
-    final factor = variant['conversionFactor'];
-    if (factor != null && factor != 1) return ' (x$factor)';
-    return '';
+  Future<void> _deleteStock(String id, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Stock'),
+        content: Text('Are you sure you want to delete $name stock?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final token = ref.read(authStateProvider)?.token ?? '';
+    final r = await http.delete(
+      Uri.parse('${AppConfig.apiBase}/item-stock/$id'),
+      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+    );
+
+    if (r.statusCode ~/ 100 == 2) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stock deleted')));
+      ref.refresh(itemStockProvider);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: ${r.body}')));
+    }
   }
 
   Future<void> _showAddStockDialog() async {
-    final items = await ref.read(itemsProvider.future); // get list of items
+    final items = await ref.read(itemsProvider.future);
     Map<String, dynamic>? selectedItem;
-    String? selectedVariant;
+    Map<String, dynamic>? selectedVariant;
     final qtyCtrl = TextEditingController();
 
     await showDialog(
@@ -163,84 +144,75 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
       builder: (_) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Add Item Stock'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<Map<String, dynamic>>(
-                value: selectedItem,
-                hint: const Text('Select Item'),
-                items: items.map((it) {
-                  return DropdownMenuItem<Map<String, dynamic>>(
-                    value: it,
-                    child: Text(it['name']),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  setState(() {
-                    selectedItem = val;
-                    selectedVariant = null; // reset variant
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              if (selectedItem != null)
-                DropdownButtonFormField<String>(
-                  value: selectedVariant,
-                  hint: const Text('Select Variant'),
-                  items: (selectedItem!['variants'] as List)
-                      .map<DropdownMenuItem<String>>((v) {
-                    final factor = v['conversionFactor'] ?? 1;
-                    return DropdownMenuItem<String>(
-                      value: v['unit'],
-                      child:
-                      Text(v['unit'] + (factor != 1 ? ' (x$factor)' : '')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  value: selectedItem,
+                  hint: const Text('Select Item'),
+                  items: items.map<DropdownMenuItem<Map<String, dynamic>>>((it) {
+                    return DropdownMenuItem<Map<String, dynamic>>(
+                      value: it,
+                      child: Text(it['name'].toString()),
                     );
                   }).toList(),
                   onChanged: (val) {
-                    setState(() => selectedVariant = val);
+                    setState(() {
+                      selectedItem = val;
+                      selectedVariant = null;
+                    });
                   },
                 ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: qtyCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+                if (selectedItem != null)
+                  DropdownButtonFormField<Map<String, dynamic>>(
+                    value: selectedVariant,
+                    hint: const Text('Select Variant'),
+                    items: (selectedItem!['variants'] as List)
+                        .cast<Map<String, dynamic>>()
+                        .map((v) {
+                      final factor = (v['conversionFactor'] ?? 1).toDouble();
+                      return DropdownMenuItem<Map<String, dynamic>>(
+                        value: v,
+                        child: Text('${v['unit']} ${factor != 1 ? '(x$factor)' : ''}'),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setState(() => selectedVariant = val),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () async {
-                if (selectedItem == null ||
-                    selectedVariant == null ||
-                    qtyCtrl.text.isEmpty) {
+                if (selectedItem == null || selectedVariant == null || qtyCtrl.text.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content:
-                        Text('Please select item, variant and quantity')),
-                  );
+                      const SnackBar(content: Text('Select item, variant, and quantity')));
                   return;
                 }
-
                 final quantity = double.tryParse(qtyCtrl.text);
                 if (quantity == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invalid quantity')),
-                  );
+                      const SnackBar(content: Text('Invalid quantity')));
                   return;
                 }
+                final factor = (selectedVariant!['conversionFactor'] ?? 1).toDouble();
+                final finalQty = quantity * factor;
 
                 final token = ref.read(authStateProvider)?.token ?? '';
-                final uri = Uri.parse('${AppConfig.apiBase}/item-stock');
                 final r = await http.post(
-                  uri,
+                  Uri.parse('${AppConfig.apiBase}/item-stock'),
                   headers: {
                     'Authorization': 'Bearer $token',
                     'Content-Type': 'application/json',
@@ -248,74 +220,109 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
                   },
                   body: jsonEncode({
                     'itemId': selectedItem!['_id'],
-                    'variantUnit': selectedVariant,
-                    'quantity': quantity,
+                    'variantUnit': selectedVariant!['unit'],
+                    'quantity': finalQty,
                   }),
                 );
 
                 if (r.statusCode ~/ 100 != 2) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed: ${r.body}')),
-                  );
+                      SnackBar(content: Text('Failed: ${r.body}')));
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Stock updated')),
-                  );
-                  ref.refresh(itemStockProvider); // refresh list
+                      const SnackBar(content: Text('Stock added')));
+                  ref.refresh(itemStockProvider);
                   Navigator.pop(context);
                 }
               },
               child: const Text('Add Stock'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF7043),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7043)),
             ),
           ],
         ),
       ),
     );
+
+    qtyCtrl.dispose();
   }
 
-  Future<void> _showAddQuantityDialog(Map<String, dynamic> stock) async {
+  Future<void> _showUpdateQuantityDialog(Map<String, dynamic> stock) async {
+    Map<String, dynamic>? selectedVariant;
     final qtyCtrl = TextEditingController();
+
+    final variants = (stock['item']?['variants'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
     await showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Add Quantity to ${stock['item']?['name']}'),
-        content: TextField(
-          controller: qtyCtrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: 'Quantity to add'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final qty = double.tryParse(qtyCtrl.text);
-              if (qty == null) return;
-              final token = ref.read(authStateProvider)?.token ?? '';
-              final r = await http.put(
-                Uri.parse('${AppConfig.apiBase}/item-stock/${stock['_id']}'),
-                headers: {
-                  'Authorization': 'Bearer $token',
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json'
-                },
-                body: jsonEncode({'quantity': qty}),
-              );
-              if (r.statusCode ~/ 100 == 2) {
-                Navigator.pop(context);
-                ref.refresh(itemStockProvider);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error: ${r.body}')),
-                );
-              }
-            },
-            child: const Text('Add'),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Update Quantity for ${stock['item']?['name'] ?? 'Item'}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  value: selectedVariant,
+                  hint: const Text('Select Variant'),
+                  items: variants.map((v) {
+                    final factor = (v['conversionFactor'] ?? 1).toDouble();
+                    return DropdownMenuItem<Map<String, dynamic>>(
+                      value: v,
+                      child: Text('${v['unit'] ?? ''}${factor != 1 ? ' (x$factor)' : ''}'),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setState(() => selectedVariant = val),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Quantity to add/decrement',
+                      border: OutlineInputBorder()),
+                ),
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                if (selectedVariant == null || qtyCtrl.text.isEmpty) return;
+                final inputQty = double.tryParse(qtyCtrl.text);
+                if (inputQty == null) return;
+
+                final factor = (selectedVariant!['conversionFactor'] ?? 1).toDouble();
+                final finalQty = inputQty * factor;
+
+                final token = ref.read(authStateProvider)?.token ?? '';
+                final r = await http.put(
+                  Uri.parse('${AppConfig.apiBase}/item-stock/${stock['_id']}'),
+                  headers: {
+                    'Authorization': 'Bearer $token',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                  },
+                  body: jsonEncode({'quantity': finalQty}),
+                );
+
+                if (r.statusCode ~/ 100 == 2) {
+                  Navigator.pop(context);
+                  ref.refresh(itemStockProvider);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: ${r.body}')));
+                }
+              },
+              child: const Text('Update'),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7043)),
+            ),
+          ],
+        ),
       ),
     );
+
+    qtyCtrl.dispose();
   }
 }

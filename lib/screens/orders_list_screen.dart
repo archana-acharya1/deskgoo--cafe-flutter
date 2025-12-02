@@ -905,10 +905,16 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
             Navigator.push<bool>(
               context,
               MaterialPageRoute(
-                  builder: (_) => OrderScreen(isEdit: true, order: o)),
+                builder: (_) => OrderScreen(isEdit: true, order: o),
+              ),
             ).then((changed) {
-              if (changed == true && mounted) ref.refresh(ordersProvider);
+              if (changed == true && mounted) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  ref.refresh(ordersProvider);
+                });
+              }
             });
+
           }
         },
         child: Padding(

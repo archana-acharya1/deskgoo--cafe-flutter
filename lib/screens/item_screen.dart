@@ -522,12 +522,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
   void dispose() {
     nameCtrl.dispose();
     descCtrl.dispose();
-    for (final r in rows) {
-      r.unitCtrl.dispose();
-      r.qtyCtrl.dispose();
-      r.priceCtrl.dispose();
-      r.conversionCtrl.dispose();
-    }
+    // _VariantRow disposes its own controllers
     super.dispose();
   }
 
@@ -672,7 +667,7 @@ class _ItemFormSheetState extends ConsumerState<_ItemFormSheet> {
                       activeColor: const Color(0xFFFF7043),
                     ),
                     const SizedBox(height: 8),
-                    ...rows.map((r) => r),
+                    ...rows,
                     TextButton.icon(
                       onPressed: () =>
                           setState(() => rows.add(_VariantRow())),
@@ -731,18 +726,8 @@ class _VariantRow extends StatefulWidget {
 
 class _VariantRowState extends State<_VariantRow> {
   List<String> presetUnits = [
-    'plate',
-    'piece',
-    'bottle',
-    'ml',
-    'liter',
-    'gram',
-    'kg',
-    'packet',
-    'cup',
-    'bowl',
-    'slice',
-    'custom',
+    'plate', 'piece', 'bottle', 'ml', 'liter', 'gram', 'kg', 'packet',
+    'cup', 'bowl', 'slice', 'custom',
   ];
 
   String? selectedUnit;
@@ -762,6 +747,7 @@ class _VariantRowState extends State<_VariantRow> {
 
   Future<void> _loadCustomUnits() async {
     final saved = await UnitService.getSavedUnits();
+    if (!mounted) return;
     setState(() {
       customUnits = saved;
     });
@@ -770,6 +756,15 @@ class _VariantRowState extends State<_VariantRow> {
   Future<void> _saveCustomUnit(String unit) async {
     await UnitService.saveUnit(unit);
     await _loadCustomUnits();
+  }
+
+  @override
+  void dispose() {
+    widget.unitCtrl.dispose();
+    widget.qtyCtrl.dispose();
+    widget.priceCtrl.dispose();
+    widget.conversionCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -811,8 +806,7 @@ class _VariantRowState extends State<_VariantRow> {
                   if (selectedUnit == 'custom')
                     TextFormField(
                       controller: widget.unitCtrl,
-                      decoration:
-                      const InputDecoration(labelText: 'Custom Unit Name'),
+                      decoration: const InputDecoration(labelText: 'Custom Unit Name'),
                       onFieldSubmitted: (val) {
                         final name = val.trim();
                         if (name.isNotEmpty) _saveCustomUnit(name);
@@ -851,8 +845,7 @@ class _VariantRowState extends State<_VariantRow> {
               width: 100,
               child: TextFormField(
                 controller: widget.conversionCtrl,
-                decoration:
-                const InputDecoration(labelText: 'Conversion Factor'),
+                decoration: const InputDecoration(labelText: 'Conversion Factor'),
                 keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [

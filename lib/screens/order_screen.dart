@@ -419,7 +419,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Order placed')));
 
-        // === KOT Printing ===
         final tables = await ref.read(orderTablesProvider.future);
         final selectedTable =
         tables.firstWhere((t) => t['_id'] == _tableId, orElse: () => {});
@@ -442,17 +441,23 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
 
         await KotPrinter.printKot(kotData);
 
-        if (!mounted) return;
-        Navigator.of(context).pop(true);
+        if (mounted) Navigator.of(context).pop(true);
+
+        Future.microtask(() async {
+          try {
+            await KotPrinter.printKot(kotData);
+          } catch (e, st) {
+            debugPrint('KOT print error: $e\n$st');
+          }
+        });
       } on TimeoutException {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-            Text('Request timed out. Check network/API.')));
+            content: Text('Request timed out. Check network/API.')));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Network error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Network error: $e')));
       }
     });
   }
@@ -508,7 +513,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Order updated')));
 
-        // === KOT Printing ===
         final tables = await ref.read(orderTablesProvider.future);
         final selectedTable =
         tables.firstWhere((t) => t['_id'] == _tableId, orElse: () => {});
@@ -531,17 +535,23 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
 
         await KotPrinter.printKot(kotData);
 
-        if (!mounted) return;
-        Navigator.of(context).pop(true);
+        if (mounted) Navigator.of(context).pop(true);
+
+        Future.microtask(() async {
+          try {
+            await KotPrinter.printKot(kotData);
+          } catch (e, st) {
+            debugPrint('KOT print error: $e\n$st');
+          }
+        });
       } on TimeoutException {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-            Text('Request timed out. Check network/API.')));
+            content: Text('Request timed out. Check network/API.')));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Network error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Network error: $e')));
       }
     });
   }
