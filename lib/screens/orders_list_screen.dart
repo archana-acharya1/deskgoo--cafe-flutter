@@ -114,6 +114,40 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       throw Exception(_serverMsg('Delete failed', r.statusCode, r.body));
     }
   }
+  Future<void> _setPaymentMethod(Map<String, dynamic> order) async {
+    final pm = await _selectPaymentMethodDialog(order);
+    if (pm == null) return;
+
+    final id = (order['_id'] ?? '').toString();
+    try {
+      final r = await http.put(
+        Uri.parse('${AppConfig.apiBase}/orders/$id'),
+        headers: _headers(),
+        body: jsonEncode({
+          'paymentMethod': pm,
+          'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
+        }),
+      );
+
+      if (r.statusCode ~/ 100 != 2) {
+        throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
+      }
+
+      if (mounted) {
+        ref.refresh(ordersProvider);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment method saved: ${pm['method']}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Save payment failed: $e')),
+        );
+      }
+    }
+  }
+
 
   Future<void> _markPaid(Map<String, dynamic> order) async {
     final id = (order['_id'] ?? '').toString();
@@ -369,6 +403,39 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     );
   }
 
+  // Future<void> _checkoutOrder(Map<String, dynamic> order) async {
+  //   final id = (order['_id'] ?? '').toString();
+  //   if (id.isEmpty) return;
+  //   final paymentMethod = await _selectPaymentMethodDialog(order);
+  //   if (paymentMethod == null) return;
+  //   String paymentStatus = 'Paid';
+  //   if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
+  //     paymentStatus = 'Credit';
+  //   }
+  //   try {
+  //     final r = await http.patch(
+  //       Uri.parse('${AppConfig.apiBase}/orders/$id/checkout'),
+  //       headers: _headers(),
+  //       body: jsonEncode({
+  //         "force": true,
+  //         "paymentMethod": paymentMethod,
+  //         "paymentStatus": paymentStatus,
+  //       }),
+  //     );
+  //     if (r.statusCode ~/ 100 != 2) {
+  //       throw Exception(_serverMsg('Checkout failed', r.statusCode, r.body));
+  //     }
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text('Checked out via ${paymentMethod['method']}')),
+  //     );
+  //     ref.refresh(ordersProvider);
+  //   } catch (e) {
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context)
+  //         .showSnackBar(SnackBar(content: Text(e.toString())));
+  //   }
+  // }
   Future<void> _checkoutOrder(Map<String, dynamic> order) async {
     final id = (order['_id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -823,6 +890,299 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
+  // Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
+  //   final id = (o['_id'] ?? '').toString();
+  //   final table = (o['table']?['name'] ?? '—').toString();
+  //   final area = (o['area']?['name'] ?? '—').toString();
+  //   final status = (o['paymentStatus'] ?? 'Paid').toString();
+  //   final total = (o['totalAmount'] ?? 0.0).toString();
+  //   final paid = (o['paidAmount'] ?? 0.0).toString();
+  //   final due = (o['dueAmount'] ?? 0.0).toString();
+  //   // final isCheckedOut = (o['checkedOut'] ?? false) == true;
+  //   final statusText = (o['status'] ?? '').toString().toLowerCase();
+  //   final isCheckedOut = (o['status'] ?? '').toString().toLowerCase() == 'checkedout';
+  //
+  //   final isCancelled = statusText == 'cancelled';
+  //
+  //
+  //
+  //   final dynamicOrderId = o['orderId'];
+  //   final clientNo = totalLen - originalIndex - 1;
+  //   final orderNoText = (dynamicOrderId is num || dynamicOrderId is String)
+  //       ? '#${dynamicOrderId.toString()}'
+  //       : '#$clientNo';
+  //
+  //   final chipColor = _statusColor(status);
+  //   final selected = _selectedIds.contains(id);
+  //
+  //   return Card(
+  //     elevation: 2,
+  //     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  //     color: selected ? Colors.orange.shade50 : null,
+  //     child: InkWell(
+  //       borderRadius: BorderRadius.circular(14),
+  //       onLongPress: () => _enterSelectMode(id),
+  //       onTap: () {
+  //         if (_selectMode) {
+  //           _toggleSelected(id);
+  //         } else {
+  //           if (isCheckedOut || isCancelled) {
+  //             ScaffoldMessenger.of(context).showSnackBar(
+  //               const SnackBar(
+  //                 content: Text('This order is already checked out or cancelled and can’t be edited.'),
+  //               ),
+  //             );
+  //             return;
+  //           }
+  //
+  //           Navigator.push<bool>(
+  //             context,
+  //             MaterialPageRoute(
+  //               builder: (_) => OrderScreen(isEdit: true, order: o),
+  //             ),
+  //           ).then((changed) {
+  //             if (changed == true && mounted) {
+  //               WidgetsBinding.instance.addPostFrameCallback((_) {
+  //                 ref.refresh(ordersProvider);
+  //               });
+  //             }
+  //           });
+  //
+  //         }
+  //       },
+  //       child: Padding(
+  //         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+  //         child: Column(
+  //           crossAxisAlignment: CrossAxisAlignment.start,
+  //           children: [
+  //             Text('$table • $area',
+  //                 style: const TextStyle(
+  //                     fontSize: 17, fontWeight: FontWeight.w600)),
+  //             const SizedBox(height: 8),
+  //             Row(
+  //               crossAxisAlignment: CrossAxisAlignment.start,
+  //               children: [
+  //                 if (_selectMode)
+  //                   Checkbox(
+  //                     value: selected,
+  //                     onChanged: (_) => _toggleSelected(id),
+  //                   )
+  //                 else
+  //                   CircleAvatar(
+  //                     radius: 24,
+  //                     backgroundColor: chipColor.withOpacity(.1),
+  //                     child: Icon(Icons.receipt_long,
+  //                         color: chipColor, size: 24),
+  //                   ),
+  //                 const SizedBox(width: 12),
+  //                 Expanded(
+  //                   child: Column(
+  //                     crossAxisAlignment: CrossAxisAlignment.start,
+  //                     children: [
+  //                       Row(children: [
+  //                         Container(
+  //                           padding: const EdgeInsets.symmetric(
+  //                               horizontal: 8, vertical: 3),
+  //                           decoration: BoxDecoration(
+  //                             color: Colors.blueGrey.withOpacity(.08),
+  //                             borderRadius: BorderRadius.circular(999),
+  //                             border: Border.all(
+  //                                 color: Colors.blueGrey.withOpacity(.25)),
+  //                           ),
+  //                           child: Text(orderNoText,
+  //                               style: const TextStyle(
+  //                                   fontSize: 12, fontWeight: FontWeight.w700)),
+  //                         ),
+  //                         const SizedBox(width: 6),
+  //                         Container(
+  //                           padding: const EdgeInsets.symmetric(
+  //                               horizontal: 10, vertical: 4),
+  //                           decoration: BoxDecoration(
+  //                             color: chipColor.withOpacity(.08),
+  //                             borderRadius: BorderRadius.circular(999),
+  //                             border:
+  //                             Border.all(color: chipColor.withOpacity(.25)),
+  //                           ),
+  //                           child: Text(status,
+  //                               style: TextStyle(
+  //                                   fontSize: 12,
+  //                                   fontWeight: FontWeight.w700,
+  //                                   color: chipColor)),
+  //                         ),
+  //                         if (isCheckedOut) ...[
+  //                           const SizedBox(width: 6),
+  //                           Container(
+  //                             padding: const EdgeInsets.symmetric(
+  //                                 horizontal: 10, vertical: 4),
+  //                             decoration: BoxDecoration(
+  //                               color: Colors.green.withOpacity(.08),
+  //                               borderRadius: BorderRadius.circular(999),
+  //                               border: Border.all(
+  //                                   color: Colors.green.withOpacity(.25)),
+  //                             ),
+  //                             child: const Text('Checked out',
+  //                                 style: TextStyle(
+  //                                     fontSize: 12,
+  //                                     fontWeight: FontWeight.w700,
+  //                                     color: Colors.green)),
+  //                           ),
+  //                         ],
+  //                         if (isCancelled) ...[
+  //                           const SizedBox(width: 6),
+  //                           Container(
+  //                             padding: const EdgeInsets.symmetric(
+  //                                 horizontal: 10, vertical: 4),
+  //                             decoration: BoxDecoration(
+  //                               color: Colors.red.withOpacity(.08),
+  //                               borderRadius: BorderRadius.circular(999),
+  //                               border: Border.all(
+  //                                   color: Colors.red.withOpacity(.25)),
+  //                             ),
+  //                             child: const Text('cancelled',
+  //                                 style: TextStyle(
+  //                                     fontSize: 12,
+  //                                     fontWeight: FontWeight.w700,
+  //                                     color: Colors.red)),
+  //                           ),
+  //                         ],
+  //                       ]),
+  //                       const SizedBox(height: 6),
+  //                       Text(
+  //                         'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
+  //                         maxLines: 1,
+  //                         overflow: TextOverflow.ellipsis,
+  //                         style: TextStyle(
+  //                             fontSize: 13, color: Colors.brown.shade800),
+  //                       ),
+  //                     ],
+  //                   ),
+  //                 ),
+  //                 if (!_selectMode)
+  //                   PopupMenuButton<String>(
+  //                     onSelected: (v) async {
+  //                       if (v == 'set_payment') {
+  //                         final pm = await _selectPaymentMethodDialog(o);
+  //                         if (pm == null) return;
+  //                         final id = (o['_id'] ?? '').toString();
+  //                         try {
+  //                           final r = await http.put(
+  //                             Uri.parse('${AppConfig.apiBase}/orders/$id'),
+  //                             headers: _headers(),
+  //                             body: jsonEncode({
+  //                               'paymentMethod': pm,
+  //                               'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
+  //                             }),
+  //                           );
+  //                           if (r.statusCode ~/ 100 != 2) {
+  //                             throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
+  //                           }
+  //                           if (mounted) {
+  //                             ref.refresh(ordersProvider);
+  //                             ScaffoldMessenger.of(context).showSnackBar(
+  //                               SnackBar(content: Text('Payment method saved: ${pm['method']}')),
+  //                             );
+  //                           }
+  //                         } catch (e) {
+  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
+  //                         }
+  //                       }
+  //
+  //                       if (v == 'edit') {
+  //                         if (isCheckedOut || isCancelled) {
+  //                           ScaffoldMessenger.of(context).showSnackBar(
+  //                             const SnackBar(content: Text('This order is already checked out or cancelled and can’t be edited.')),
+  //                           );
+  //                           return;
+  //                         }
+  //                         final changed = await Navigator.push<bool>(
+  //                           context,
+  //                           MaterialPageRoute(builder: (_) => OrderScreen(isEdit: true, order: o)),
+  //                         );
+  //                         if (changed == true && mounted)
+  //                           ref.refresh(ordersProvider);
+  //                       }
+  //
+  //                       if (v == 'print') await _printOrder(o);
+  //
+  //                       if (v == 'checkout') {
+  //                         if (isCancelled) {
+  //                           ScaffoldMessenger.of(context).showSnackBar(
+  //                             const SnackBar(content: Text('Cancelled order cannot be checked out.')),
+  //                           );
+  //                           return;
+  //                         }
+  //                         await _checkoutOrder(o);
+  //                       }
+  //
+  //                       if (v == 'mark_paid') {
+  //                         await _markPaid(o);
+  //                         if (mounted) ref.refresh(ordersProvider);
+  //                       }
+  //
+  //                       if (v == 'cancel') {
+  //                         if (isCancelled) {
+  //                           ScaffoldMessenger.of(context).showSnackBar(
+  //                             const SnackBar(content: Text('Order is already cancelled.')),
+  //                           );
+  //                           return;
+  //                         }
+  //                         try {
+  //                           await _cancelOrder(id);
+  //                           if (mounted) {
+  //                             ref.refresh(ordersProvider);
+  //                             setState(() {}); // rebuild card to show Cancelled badge
+  //                           }
+  //                         } catch (e) {
+  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cancel failed: $e')));
+  //                         }
+  //                       }
+  //
+  //                       if (v == 'delete') {
+  //                         try {
+  //                           await _deleteOrder(id);
+  //                           if (mounted) ref.refresh(ordersProvider);
+  //                         } catch (e) {
+  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+  //                         }
+  //                       }
+  //
+  //                       if (v == 'view_invoice') await _viewInvoice(o);
+  //                       if (v == 'print_invoice') await _printInvoice(o);
+  //                     },
+  //                     itemBuilder: (_) {
+  //                       final items = <PopupMenuEntry<String>>[
+  //                         const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')),
+  //                         const PopupMenuItem(value: 'edit', child: Text('Edit')),
+  //                         const PopupMenuItem(value: 'print', child: Text('Print')),
+  //                       ];
+  //
+  //                       if (isCheckedOut) {
+  //                         items.add(const PopupMenuItem(value: 'view_invoice', child: Text('View Invoice')));
+  //                         items.add(const PopupMenuItem(value: 'print_invoice', child: Text('Print Invoice')));
+  //                       }
+  //
+  //                       if (!isCheckedOut && !isCancelled) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
+  //
+  //                       if (_canManage && !isCheckedOut && !isCancelled)
+  //                         items.add(const PopupMenuItem(
+  //                           value: 'cancel',
+  //                           child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
+  //                         ));
+  //
+  //                       if (_canManage && status != 'Paid' && !isCheckedOut && !isCancelled)
+  //                         items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
+  //                       if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
+  //                       return items;
+  //                     },
+  //                   ),
+  //               ],
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //     ),
+  //   );
   Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
     final id = (o['_id'] ?? '').toString();
     final orderType = (o['orderType'] ?? 'DINE-IN').toString().toUpperCase();
@@ -846,193 +1206,249 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final selected = _selectedIds.contains(id);
 
     return Card(
-        elevation: 2,
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    color: selected ? Colors.orange.shade50 : null,
-    child: InkWell(
-    borderRadius: BorderRadius.circular(14),
-    onLongPress: () => _enterSelectMode(id),
-    onTap: () {
-    if (_selectMode) {
-    _toggleSelected(id);
-    } else {
-    if (isCheckedOut || isCancelled) {
-    ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-    content: Text('This order is already checked out or cancelled and can’t be edited.'),
-    ),
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: selected ? Colors.orange.shade50 : null,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onLongPress: () => _enterSelectMode(id),
+        onTap: () {
+          if (_selectMode) {
+            _toggleSelected(id);
+          } else {
+            if (isCheckedOut || isCancelled) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                      'This order is already checked out or cancelled and can’t be edited.'),
+                ),
+              );
+              return;
+            }
+
+            Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => OrderScreen(isEdit: true, order: o),
+              ),
+            ).then((changed) {
+              if (changed == true && mounted) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  ref.refresh(ordersProvider);
+                });
+              }
+            });
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Order Type + Table/Area for DINE-IN
+              Text(
+                orderType + (orderType == 'DINE-IN' ? ' • $table • $area' : ''),
+                style:
+                const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_selectMode)
+                    Checkbox(
+                      value: selected,
+                      onChanged: (_) => _toggleSelected(id),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: chipColor.withOpacity(.1),
+                      child: Icon(Icons.receipt_long, color: chipColor, size: 24),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.withOpacity(.08),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                  color: Colors.blueGrey.withOpacity(.25)),
+                            ),
+                            child: Text(orderNoText,
+                                style: const TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: chipColor.withOpacity(.08),
+                              borderRadius: BorderRadius.circular(999),
+                              border:
+                              Border.all(color: chipColor.withOpacity(.25)),
+                            ),
+                            child: Text(status,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: chipColor)),
+                          ),
+                          if (isCheckedOut) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(.08),
+                                borderRadius: BorderRadius.circular(999),
+                                border:
+                                Border.all(color: Colors.green.withOpacity(.25)),
+                              ),
+                              child: const Text('Checked out',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.green)),
+                            ),
+                          ],
+                          if (isCancelled) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(.08),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                    color: Colors.red.withOpacity(.25)),
+                              ),
+                              child: const Text('Cancelled',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.red)),
+                            ),
+                          ],
+                        ]),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13, color: Colors.brown.shade800),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!_selectMode)
+                    PopupMenuButton<String>(
+                      onSelected: (v) =>
+                          _handleOrderMenuAction(v, o, isCheckedOut, isCancelled),
+                      itemBuilder: (_) =>
+                          _buildPopupMenuItems(o, isCheckedOut, isCancelled),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    return;
-    }
+  }
 
-    Navigator.push<bool>(
-    context,
-    MaterialPageRoute(
-    builder: (_) => OrderScreen(isEdit: true, order: o),
-    ),
-    ).then((changed) {
-    if (changed == true && mounted) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    ref.refresh(ordersProvider);
-    });
-    }
-    });
-    }
-    },
-    child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    // Order Type + Table/Area for DINE-IN
-    Text(
-    orderType + (orderType == 'DINE-IN' ? ' • $table • $area' : ''),
-    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-    ),
-    const SizedBox(height: 8),
-    Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    if (_selectMode)
-    Checkbox(
-    value: selected,
-    onChanged: (_) => _toggleSelected(id),
-    )
-    else
-    CircleAvatar(
-    radius: 24,
-    backgroundColor: chipColor.withOpacity(.1),
-    child: Icon(Icons.receipt_long, color: chipColor, size: 24),
-    ),
-    const SizedBox(width: 12),
-    Expanded(
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Row(children: [
-    Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(
-    color: Colors.blueGrey.withOpacity(.08),
-    borderRadius: BorderRadius.circular(999),
-    border: Border.all(color: Colors.blueGrey.withOpacity(.25)),
-    ),
-    child: Text(orderNoText,
-    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-    ),
-    const SizedBox(width: 6),
-    Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-    color: chipColor.withOpacity(.08),
-    borderRadius: BorderRadius.circular(999),
-    border: Border.all(color: chipColor.withOpacity(.25)),
-    ),
-    child: Text(status,
-    style: TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w700,
-    color: chipColor)),
-    ),
-    if (isCheckedOut) ...[
-    const SizedBox(width: 6),
-    Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-    color: Colors.green.withOpacity(.08),
-    borderRadius: BorderRadius.circular(999),
-    border: Border.all(color: Colors.green.withOpacity(.25)),
-    ),
-    child: const Text('Checked out',
-    style: TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w700,
-    color: Colors.green)),
-    ),
-    ],
-    if (isCancelled) ...[
-    const SizedBox(width: 6),
-    Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-    color: Colors.red.withOpacity(.08),
-    borderRadius: BorderRadius.circular(999),
-    border: Border.all(color: Colors.red.withOpacity(.25)),
-    ),
-    child: const Text('Cancelled',
-    style: TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w700,
-    color: Colors.red)),
-    ),
-    ],
-    ]),
-    const SizedBox(height: 6),
-    Text(
-    'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
-    style: TextStyle(fontSize: 13, color: Colors.brown.shade800),
-    ),
-    ],
-    ),
-    ),
-    if (!_selectMode)
-    PopupMenuButton<String>(
-    onSelected: (v) => _handleOrderMenuAction(v, o, isCheckedOut, isCancelled),
-    itemBuilder: (_) => _buildPopupMenuItems(o, isCheckedOut, isCancelled),
-    ),
-    ],
-    ),
-    ],
-    ),
-    ),
-    ));
-    }
-
-  // Handle popup menu actions
+// Handle popup menu actions
   void _handleOrderMenuAction(
       String action,
       Map<String, dynamic> order,
       bool isCheckedOut,
       bool isCancelled,
-      ) {
+      ) async {
+    final id = (order['_id'] ?? '').toString();
+
     if (action == 'edit') {
       if (isCheckedOut || isCancelled) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('This order is already checked out or cancelled and can’t be edited.')),
+          const SnackBar(
+              content: Text(
+                  'This order is already checked out or cancelled and can’t be edited.')),
         );
         return;
       }
-      Navigator.push<bool>(
+      final changed = await Navigator.push<bool>(
         context,
         MaterialPageRoute(builder: (_) => OrderScreen(isEdit: true, order: order)),
-      ).then((changed) {
-        if (changed == true && mounted) ref.refresh(ordersProvider);
-      });
+      );
+      if (changed == true && mounted) ref.refresh(ordersProvider);
     } else if (action == 'checkout') {
-      // call your checkout logic
+      await _checkoutOrder(order);
     } else if (action == 'delete') {
-      // call your delete logic
+      await _deleteOrder(id);
+      if (mounted) ref.refresh(ordersProvider);
     } else if (action == 'print') {
-      _printOrder(order);
+      await _printOrder(order);
+    } else if (action == 'mark_paid') {
+      await _markPaid(order);
+      if (mounted) ref.refresh(ordersProvider);
+    } else if (action == 'cancel') {
+      await _cancelOrder(id);
+      if (mounted) ref.refresh(ordersProvider);
+    } else if (action == 'view_invoice') {
+      await _viewInvoice(order);
+    } else if (action == 'print_invoice') {
+      await _printInvoice(order);
+    } else if (action == 'set_payment') {
+      await _setPaymentMethod(order);
     }
   }
 
-  // Build popup menu items
+// Build popup menu items
   List<PopupMenuEntry<String>> _buildPopupMenuItems(
       Map<String, dynamic> order,
       bool isCheckedOut,
       bool isCancelled,
       ) {
+    final status = (order['paymentStatus'] ?? 'Paid').toString();
     final items = <PopupMenuEntry<String>>[];
+
+    // Always available
+    items.add(const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')));
+    items.add(const PopupMenuItem(value: 'edit', child: Text('Edit')));
+    items.add(const PopupMenuItem(value: 'print', child: Text('Print')));
+
+    if (isCheckedOut) {
+      items.add(const PopupMenuItem(value: 'view_invoice', child: Text('View Invoice')));
+      items.add(const PopupMenuItem(value: 'print_invoice', child: Text('Print Invoice')));
+    }
+
     if (!isCheckedOut && !isCancelled) {
-      items.add(const PopupMenuItem(value: 'edit', child: Text('Edit')));
       items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
+    }
+
+    if (_canManage && !isCheckedOut && !isCancelled) {
+      items.add(const PopupMenuItem(
+        value: 'cancel',
+        child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
+      ));
+    }
+
+    if (_canManage && status != 'Paid' && !isCheckedOut && !isCancelled) {
+      items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
+    }
+
+    if (_canManage) {
       items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
     }
-    items.add(const PopupMenuItem(value: 'print', child: Text('Print')));
+
     return items;
   }
 
