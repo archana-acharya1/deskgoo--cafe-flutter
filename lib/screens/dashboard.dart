@@ -1,5 +1,4 @@
 import 'package:deskgoo_cafe_v2/providers/socket_provider.dart';
-import 'package:deskgoo_cafe_v2/screens/daily_stock_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/home_page.dart';
 import 'package:deskgoo_cafe_v2/screens/item_stock_screen.dart';
 import 'package:deskgoo_cafe_v2/screens/report_screen.dart';
@@ -14,9 +13,7 @@ import 'login_page.dart';
 import '../state/auth.dart';
 import 'order_screen.dart';
 import 'orders_list_screen.dart';
-// import 'stock_screen.dart';
 import 'restaurant_settings_screen.dart';
-import 'ingredient_screen.dart';
 
 class Dashboard extends ConsumerStatefulWidget {
   const Dashboard({super.key});
@@ -216,9 +213,6 @@ class _DashboardState extends ConsumerState<Dashboard> with WidgetsBindingObserv
                 drawerItem('Tables', Icons.table_bar),
                 drawerItem('New Order', Icons.add_shopping_cart),
                 drawerItem('Orders', Icons.receipt),
-                // drawerItem('Stock', Icons.inventory),
-                // drawerItem('Ingredients', Icons.kitchen),
-                // drawerItem('Daily-Stock', Icons.food_bank_sharp),
                 drawerItem('Item-Stock', Icons.inventory),
                 drawerItem('Reports', Icons.bar_chart),
                 if (_canSeeUsers)
