@@ -47,7 +47,6 @@ class LoadingOverlay {
   }
 }
 
-// NOTE: items provider changed to a family so it can accept an optional categoryId.
 final orderItemsCatalogProvider =
 FutureProvider.family<List<Map<String, dynamic>>, String?>((ref, categoryId) async {
   final token = ref.read(authStateProvider)?.token ?? '';
@@ -83,7 +82,6 @@ FutureProvider<List<Map<String, dynamic>>>((ref) async {
   return list.cast<Map<String, dynamic>>();
 });
 
-/// NEW: categories provider
 final orderCategoriesProvider =
 FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final token = ref.read(authStateProvider)?.token ?? '';
@@ -134,7 +132,7 @@ class _OrderLine {
 class _OrderScreenState extends ConsumerState<OrderScreen> {
   String? _tableId;
   String? _areaName;
-  String _orderType = 'dine-in'; // NEW: order type
+  String _orderType = 'dine-in';
 
   final List<_OrderLine> _lines = [];
 
@@ -143,7 +141,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
   final _deliveryCtrl = TextEditingController();
 
 
-  // Use controller for customer name to default to "Guest" but remain editable
   final _customerCtrl = TextEditingController(text: 'Guest');
   String _paymentStatus = 'Credit';
 
@@ -200,7 +197,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
       _tableId = widget.initialTableId;
     }
 
-    // If starting in dine-in, try to auto-select a table if none selected
     if (_orderType == 'dine-in' && (_tableId == null || _tableId!.isEmpty)) {
       Future.microtask(() async {
         try {
@@ -350,7 +346,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
     try {
       await body();
     } finally {
-      // always remove overlay (if still present)
       LoadingOverlay.hide();
       if (mounted) setState(() => _submitting = false);
     }
@@ -364,7 +359,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
       return;
     }
 
-    // For dine-in, table is required
     if (_orderType == 'dine-in' && (_tableId == null || _tableId!.isEmpty)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -372,7 +366,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
       return;
     }
 
-    // If Credit or not delivery, require customer name (but default is Guest)
     if ((_paymentStatus == 'Credit' || _orderType != 'delivery') &&
         (_customerCtrl.text.trim().isEmpty)) {
       if (!mounted) return;
@@ -381,15 +374,12 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
       return;
     }
 
-    // For delivery, require delivery address
     if (_orderType == 'delivery' && _deliveryCtrl.text.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please enter delivery address.')));
       return;
     }
-
-
 
     FocusScope.of(context).unfocus();
 
@@ -431,13 +421,11 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           return;
         }
 
-        // hide overlay BEFORE popping so modal barrier won't stay and cause black screen
         LoadingOverlay.hide();
 
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Order placed')));
 
-        // KOT printing: tableName only for dine-in; otherwise "Takeaway"/"Delivery"
         String kotTableName;
         if (_orderType == 'dine-in') {
           final tables = await ref.read(orderTablesProvider.future);
@@ -473,8 +461,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           debugPrint('KOT print error (first): $e');
         }
 
-        // if (mounted) Navigator.of(context).pop(true);
-
       } on TimeoutException {
         if (!mounted) return;
         LoadingOverlay.hide();
@@ -488,7 +474,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
       }
     });
   }
-
 
   Future<void> _updateOrder() async {
     if (!widget.isEdit || widget.order == null) return;
@@ -554,13 +539,11 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           return;
         }
 
-        // hide overlay BEFORE popping so modal barrier won't stay
         LoadingOverlay.hide();
 
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Order updated')));
 
-        // KOT printing (table name logic same as create)
         String kotTableName;
         if (_orderType == 'dine-in') {
           final tables = await ref.read(orderTablesProvider.future);
@@ -594,7 +577,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           debugPrint('KOT print error (update): $e');
         }
 
-        // if (mounted) Navigator.of(context).pop(true);
 
       } on TimeoutException {
         if (!mounted) return;
@@ -610,7 +592,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
     });
   }
 
-  // Helper: confirm deletion of a selected order line
   Future<bool> _confirmDeleteItem(String itemName) async {
     final r = await showDialog<bool>(
       context: context,
@@ -658,7 +639,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
                   onChanged: (v) {
                     setState(() {
                       _orderType = v!;
-                      // if switching to dine-in but no table selected, try to pick first
                       if (_orderType == 'dine-in' && (_tableId == null || _tableId!.isEmpty)) {
                         Future.microtask(() async {
                           final tables = await ref.read(orderTablesProvider.future);
@@ -743,9 +723,13 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
               error: (e, _) => Text('Failed to load categories: $e', style: const TextStyle(color: Colors.red)),
               data: (categories) {
                 if (categories.isEmpty) return const Text('No categories found.', style: TextStyle(color: Colors.red));
+                final allCategories = [
+                  {'_id': null, 'name': 'All'},
+                  ...categories,
+                ];
                 return Wrap(
                   spacing: 8,
-                  children: categories.map((c) {
+                  children: allCategories.map((c) {
                     final cid = c['_id']?.toString();
                     final selected = cid == _selectedCategoryId;
                     return ChoiceChip(
@@ -767,24 +751,31 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
               error: (e, _) => Text('Failed to load items: $e', style: const TextStyle(color: Colors.red)),
               data: (items) {
                 if (items.isEmpty) return const Text('No items found.', style: TextStyle(color: Colors.red));
+
                 final filtered = _query.isEmpty
                     ? items
                     : items.where((it) => (it['name']?.toString().toLowerCase() ?? '').contains(_query)).toList();
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: filtered.map((it) {
-                    final name = it['name']?.toString() ?? 'Item';
-                    return ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: themeColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onPressed: () => _addItemFromCatalog(it),
-                      child: Text(name),
-                    );
-                  }).toList(),
+
+                return Container(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: filtered.map((it) {
+                        final name = it['name']?.toString() ?? 'Item';
+                        return ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          onPressed: () => _addItemFromCatalog(it),
+                          child: Text(name),
+                        );
+                      }).toList(),
+                    ),
+                  ),
                 );
               },
             ),
@@ -897,7 +888,7 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
               ),
 
             if (_orderType == 'delivery')
-              const SizedBox(height: 12), // optional spacing
+              const SizedBox(height: 12),
             if (_orderType == 'delivery')
               TextField(
                 controller: _deliveryCtrl,

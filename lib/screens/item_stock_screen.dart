@@ -132,126 +132,130 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: ${r.body}')));
     }
   }
-
   Future<void> _showAddStockDialog() async {
     final items = await ref.read(itemsProvider.future);
     Map<String, dynamic>? selectedItem;
     Map<String, dynamic>? selectedVariant;
-    final qtyCtrl = TextEditingController();
 
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Add Item Stock'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<Map<String, dynamic>>(
-                  value: selectedItem,
-                  hint: const Text('Select Item'),
-                  items: items.map<DropdownMenuItem<Map<String, dynamic>>>((it) {
-                    return DropdownMenuItem<Map<String, dynamic>>(
-                      value: it,
-                      child: Text(it['name'].toString()),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    setState(() {
-                      selectedItem = val;
-                      selectedVariant = null;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                if (selectedItem != null)
+        builder: (context, setState) {
+          final qtyCtrl = TextEditingController();
+
+          return AlertDialog(
+            title: const Text('Add Item Stock'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   DropdownButtonFormField<Map<String, dynamic>>(
-                    value: selectedVariant,
-                    hint: const Text('Select Variant'),
-                    items: (selectedItem!['variants'] as List)
-                        .cast<Map<String, dynamic>>()
-                        .map((v) {
-                      final factor = (v['conversionFactor'] ?? 1).toDouble();
+                    value: selectedItem,
+                    hint: const Text('Select Item'),
+                    items: items.map<DropdownMenuItem<Map<String, dynamic>>>((it) {
                       return DropdownMenuItem<Map<String, dynamic>>(
-                        value: v,
-                        child: Text('${v['unit']} ${factor != 1 ? '(x$factor)' : ''}'),
+                        value: it,
+                        child: Text(it['name'].toString()),
                       );
                     }).toList(),
-                    onChanged: (val) => setState(() => selectedVariant = val),
+                    onChanged: (val) {
+                      setState(() {
+                        selectedItem = val;
+                        selectedVariant = null;
+                      });
+                    },
                   ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: qtyCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Quantity',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  if (selectedItem != null)
+                    DropdownButtonFormField<Map<String, dynamic>>(
+                      value: selectedVariant,
+                      hint: const Text('Select Variant'),
+                      items: (selectedItem!['variants'] as List)
+                          .cast<Map<String, dynamic>>()
+                          .map((v) {
+                        final factor = (v['conversionFactor'] ?? 1).toDouble();
+                        return DropdownMenuItem<Map<String, dynamic>>(
+                          value: v,
+                          child: Text('${v['unit']} ${factor != 1 ? '(x$factor)' : ''}'),
+                        );
+                      }).toList(),
+                      onChanged: (val) => setState(() => selectedVariant = val),
+                    ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: qtyCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (selectedItem == null || selectedVariant == null || qtyCtrl.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Select item, variant, and quantity')));
-                  return;
-                }
-                final quantity = double.tryParse(qtyCtrl.text);
-                if (quantity == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Invalid quantity')));
-                  return;
-                }
-                final factor = (selectedVariant!['conversionFactor'] ?? 1).toDouble();
-                final finalQty = quantity * factor;
+            actions: [
+              TextButton(onPressed: () {
+                qtyCtrl.dispose();
+                Navigator.pop(context);
+              }, child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedItem == null || selectedVariant == null || qtyCtrl.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Select item, variant, and quantity')));
+                    return;
+                  }
 
-                final token = ref.read(authStateProvider)?.token ?? '';
-                final r = await http.post(
-                  Uri.parse('${AppConfig.apiBase}/item-stock'),
-                  headers: {
-                    'Authorization': 'Bearer $token',
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                  },
-                  body: jsonEncode({
-                    'itemId': selectedItem!['_id'],
-                    'variantUnit': selectedVariant!['unit'],
-                    'quantity': finalQty,
-                  }),
-                );
+                  final quantity = double.tryParse(qtyCtrl.text);
+                  if (quantity == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Invalid quantity')));
+                    return;
+                  }
 
-                if (r.statusCode ~/ 100 != 2) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed: ${r.body}')));
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Stock added')));
-                  ref.refresh(itemStockProvider);
-                  Navigator.pop(context);
-                }
-              },
-              child: const Text('Add Stock'),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7043)),
-            ),
-          ],
-        ),
+                  final factor = (selectedVariant!['conversionFactor'] ?? 1).toDouble();
+                  final finalQty = quantity * factor;
+
+                  final token = ref.read(authStateProvider)?.token ?? '';
+                  final r = await http.post(
+                    Uri.parse('${AppConfig.apiBase}/item-stock'),
+                    headers: {
+                      'Authorization': 'Bearer $token',
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                    },
+                    body: jsonEncode({
+                      'itemId': selectedItem!['_id'],
+                      'variantUnit': selectedVariant!['unit'],
+                      'quantity': finalQty,
+                    }),
+                  );
+
+                  if (r.statusCode ~/ 100 != 2) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed: ${r.body}')));
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Stock added')));
+                    ref.refresh(itemStockProvider);
+                    qtyCtrl.dispose(); // dispose after done
+                    Navigator.pop(context);
+                  }
+                },
+                child: const Text('Add Stock'),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7043)),
+              ),
+            ],
+          );
+        },
       ),
     );
-
-    qtyCtrl.dispose();
   }
-
   Future<void> _showUpdateQuantityDialog(Map<String, dynamic> stock) async {
     Map<String, dynamic>? selectedVariant;
     final qtyCtrl = TextEditingController();
 
-    final variants = (stock['item']?['variants'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
+    final variants = (stock['item']?['variants'] as List? ?? []).cast<Map<String, dynamic>>();
 
     await showDialog(
       context: context,
@@ -272,7 +276,10 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
                       child: Text('${v['unit'] ?? ''}${factor != 1 ? ' (x$factor)' : ''}'),
                     );
                   }).toList(),
-                  onChanged: (val) => setState(() => selectedVariant = val),
+                  onChanged: (val) {
+                    if (!mounted) return;
+                    setState(() => selectedVariant = val);
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -290,6 +297,7 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (selectedVariant == null || qtyCtrl.text.isEmpty) return;
+
                 final inputQty = double.tryParse(qtyCtrl.text);
                 if (inputQty == null) return;
 
@@ -307,6 +315,8 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
                   body: jsonEncode({'quantity': finalQty}),
                 );
 
+                if (!mounted) return;
+
                 if (r.statusCode ~/ 100 == 2) {
                   Navigator.pop(context);
                   ref.refresh(itemStockProvider);
@@ -322,7 +332,5 @@ class _ItemStockScreenState extends ConsumerState<ItemStockScreen> {
         ),
       ),
     );
-
-    qtyCtrl.dispose();
   }
 }

@@ -64,7 +64,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
   late List<Map<String, dynamic>> _currentFilteredOrders;
   late List<String> _currentFilteredIds;
 
-  // Nepali date filter fields
   NepaliDateTime? _fromDate;
   NepaliDateTime? _toDate;
 
@@ -403,39 +402,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     );
   }
 
-  // Future<void> _checkoutOrder(Map<String, dynamic> order) async {
-  //   final id = (order['_id'] ?? '').toString();
-  //   if (id.isEmpty) return;
-  //   final paymentMethod = await _selectPaymentMethodDialog(order);
-  //   if (paymentMethod == null) return;
-  //   String paymentStatus = 'Paid';
-  //   if ((paymentMethod['method']?.toString() ?? '') == 'credit') {
-  //     paymentStatus = 'Credit';
-  //   }
-  //   try {
-  //     final r = await http.patch(
-  //       Uri.parse('${AppConfig.apiBase}/orders/$id/checkout'),
-  //       headers: _headers(),
-  //       body: jsonEncode({
-  //         "force": true,
-  //         "paymentMethod": paymentMethod,
-  //         "paymentStatus": paymentStatus,
-  //       }),
-  //     );
-  //     if (r.statusCode ~/ 100 != 2) {
-  //       throw Exception(_serverMsg('Checkout failed', r.statusCode, r.body));
-  //     }
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text('Checked out via ${paymentMethod['method']}')),
-  //     );
-  //     ref.refresh(ordersProvider);
-  //   } catch (e) {
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context)
-  //         .showSnackBar(SnackBar(content: Text(e.toString())));
-  //   }
-  // }
   Future<void> _checkoutOrder(Map<String, dynamic> order) async {
     final id = (order['_id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -608,9 +574,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     });
   }
 
-  // -------------------- INVOICE HELPERS --------------------
-
-  /// Fetch saved receipt by orderId; returns parsed JSON or null.
   Future<Map<String, dynamic>?> _fetchReceiptJson(String orderId) async {
     final token = ref.read(authStateProvider)?.token ?? '';
     if (token.isEmpty) return null;
@@ -626,7 +589,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
-  /// Fetch restaurant settings (same endpoint used elsewhere)
   Future<Map<String, dynamic>?> _fetchRestaurantSettings() async {
     final token = ref.read(authStateProvider)?.token ?? '';
     if (token.isEmpty) return null;
@@ -637,7 +599,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     if (res.statusCode != 200) return null;
     try {
       final body = jsonDecode(res.body) as Map<String, dynamic>;
-      // many implementations return { settings: { ... } } like other files
       if (body.containsKey('settings')) return body['settings'] as Map<String, dynamic>;
       return body;
     } catch (_) {
@@ -645,7 +606,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
-  /// Build invoice PDF bytes (A4) from order JSON + receipt JSON + restaurant settings.
   Future<Uint8List> _buildInvoicePdfBytes(
       Map<String, dynamic> orderJson,
       Map<String, dynamic> receiptJson,
@@ -665,10 +625,8 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final email = settings?['email']?.toString() ?? '';
     final footerNote = settings?['footerNote']?.toString() ?? 'Thank you for dining with us!';
 
-    // invoice number: prefer order serial (orderId) else fallback to order _id
     final invoiceNumber = (orderJson['orderId'] ?? orderJson['orderNumber'] ?? orderJson['_id'] ?? '').toString();
 
-    // payment method
     String paymentMethod = '';
     try {
       final pm = orderJson['paymentMethod'];
@@ -683,14 +641,12 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       paymentMethod = '';
     }
 
-    // times
     final receiptPrintedAt = receiptJson['printedAt'] != null
         ? DateTime.tryParse(receiptJson['printedAt'].toString())
         : (receiptJson['createdAt'] != null ? DateTime.tryParse(receiptJson['createdAt'].toString()) : null);
     final receiptPrintedStr = receiptPrintedAt != null ? receiptPrintedAt.toLocal().toString() : '';
     final invoiceGeneratedAt = DateTime.now().toLocal().toString();
 
-    // Items: from receiptJson items preferred
     final itemsRaw = (receiptJson['items'] as List?) ?? (orderJson['items'] as List?) ?? [];
     final items = itemsRaw.map((m) {
       final map = m as Map<String, dynamic>;
@@ -710,12 +666,10 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final vatAmount = (receiptJson['vatAmount'] is num) ? (receiptJson['vatAmount'] as num).toDouble() : (vatPercent > 0 ? subtotalAfterDiscount * vatPercent / 100 : 0.0);
     final finalAmount = (receiptJson['finalAmount'] is num) ? (receiptJson['finalAmount'] as num).toDouble() : subtotalAfterDiscount + vatAmount;
 
-    // Logo: try fetch bytes if logoUrl present
     pw.MemoryImage? logoImage;
     final logoUrl = settings?['logoUrl']?.toString();
     if (logoUrl != null && logoUrl.isNotEmpty) {
       try {
-        // attempt to fetch logo bytes (hostBase used by your app elsewhere)
         final logoUri = logoUrl.startsWith('http') ? Uri.parse(logoUrl) : Uri.parse('${AppConfig.hostBase}/${logoUrl}');
         final logoRes = await http.get(logoUri);
         if (logoRes.statusCode == 200) {
@@ -726,7 +680,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       }
     }
 
-    // Build PDF page
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -827,7 +780,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     return doc.save();
   }
 
-  /// Preview invoice as a PDF-style screen using PdfPreview
   Future<void> _viewInvoice(Map<String, dynamic> orderJson) async {
     final orderId = (orderJson['_id'] ?? '').toString();
     if (orderId.isEmpty) {
@@ -836,7 +788,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       return;
     }
 
-    // fetch receipt
     final receiptJson = await _fetchReceiptJson(orderId);
     if (receiptJson == null) {
       if (!mounted) return;
@@ -844,10 +795,8 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       return;
     }
 
-    // fetch restaurant settings
     final settings = await _fetchRestaurantSettings();
 
-    // navigate to preview screen
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (ctx) {
       return Scaffold(
@@ -863,7 +812,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }));
   }
 
-  /// Print invoice directly
   Future<void> _printInvoice(Map<String, dynamic> orderJson) async {
     final orderId = (orderJson['_id'] ?? '').toString();
     if (orderId.isEmpty) {
@@ -872,7 +820,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       return;
     }
 
-    // fetch receipt
     final receiptJson = await _fetchReceiptJson(orderId);
     if (receiptJson == null) {
       if (!mounted) return;
@@ -890,299 +837,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
-  // Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
-  //   final id = (o['_id'] ?? '').toString();
-  //   final table = (o['table']?['name'] ?? '—').toString();
-  //   final area = (o['area']?['name'] ?? '—').toString();
-  //   final status = (o['paymentStatus'] ?? 'Paid').toString();
-  //   final total = (o['totalAmount'] ?? 0.0).toString();
-  //   final paid = (o['paidAmount'] ?? 0.0).toString();
-  //   final due = (o['dueAmount'] ?? 0.0).toString();
-  //   // final isCheckedOut = (o['checkedOut'] ?? false) == true;
-  //   final statusText = (o['status'] ?? '').toString().toLowerCase();
-  //   final isCheckedOut = (o['status'] ?? '').toString().toLowerCase() == 'checkedout';
-  //
-  //   final isCancelled = statusText == 'cancelled';
-  //
-  //
-  //
-  //   final dynamicOrderId = o['orderId'];
-  //   final clientNo = totalLen - originalIndex - 1;
-  //   final orderNoText = (dynamicOrderId is num || dynamicOrderId is String)
-  //       ? '#${dynamicOrderId.toString()}'
-  //       : '#$clientNo';
-  //
-  //   final chipColor = _statusColor(status);
-  //   final selected = _selectedIds.contains(id);
-  //
-  //   return Card(
-  //     elevation: 2,
-  //     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-  //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-  //     color: selected ? Colors.orange.shade50 : null,
-  //     child: InkWell(
-  //       borderRadius: BorderRadius.circular(14),
-  //       onLongPress: () => _enterSelectMode(id),
-  //       onTap: () {
-  //         if (_selectMode) {
-  //           _toggleSelected(id);
-  //         } else {
-  //           if (isCheckedOut || isCancelled) {
-  //             ScaffoldMessenger.of(context).showSnackBar(
-  //               const SnackBar(
-  //                 content: Text('This order is already checked out or cancelled and can’t be edited.'),
-  //               ),
-  //             );
-  //             return;
-  //           }
-  //
-  //           Navigator.push<bool>(
-  //             context,
-  //             MaterialPageRoute(
-  //               builder: (_) => OrderScreen(isEdit: true, order: o),
-  //             ),
-  //           ).then((changed) {
-  //             if (changed == true && mounted) {
-  //               WidgetsBinding.instance.addPostFrameCallback((_) {
-  //                 ref.refresh(ordersProvider);
-  //               });
-  //             }
-  //           });
-  //
-  //         }
-  //       },
-  //       child: Padding(
-  //         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-  //         child: Column(
-  //           crossAxisAlignment: CrossAxisAlignment.start,
-  //           children: [
-  //             Text('$table • $area',
-  //                 style: const TextStyle(
-  //                     fontSize: 17, fontWeight: FontWeight.w600)),
-  //             const SizedBox(height: 8),
-  //             Row(
-  //               crossAxisAlignment: CrossAxisAlignment.start,
-  //               children: [
-  //                 if (_selectMode)
-  //                   Checkbox(
-  //                     value: selected,
-  //                     onChanged: (_) => _toggleSelected(id),
-  //                   )
-  //                 else
-  //                   CircleAvatar(
-  //                     radius: 24,
-  //                     backgroundColor: chipColor.withOpacity(.1),
-  //                     child: Icon(Icons.receipt_long,
-  //                         color: chipColor, size: 24),
-  //                   ),
-  //                 const SizedBox(width: 12),
-  //                 Expanded(
-  //                   child: Column(
-  //                     crossAxisAlignment: CrossAxisAlignment.start,
-  //                     children: [
-  //                       Row(children: [
-  //                         Container(
-  //                           padding: const EdgeInsets.symmetric(
-  //                               horizontal: 8, vertical: 3),
-  //                           decoration: BoxDecoration(
-  //                             color: Colors.blueGrey.withOpacity(.08),
-  //                             borderRadius: BorderRadius.circular(999),
-  //                             border: Border.all(
-  //                                 color: Colors.blueGrey.withOpacity(.25)),
-  //                           ),
-  //                           child: Text(orderNoText,
-  //                               style: const TextStyle(
-  //                                   fontSize: 12, fontWeight: FontWeight.w700)),
-  //                         ),
-  //                         const SizedBox(width: 6),
-  //                         Container(
-  //                           padding: const EdgeInsets.symmetric(
-  //                               horizontal: 10, vertical: 4),
-  //                           decoration: BoxDecoration(
-  //                             color: chipColor.withOpacity(.08),
-  //                             borderRadius: BorderRadius.circular(999),
-  //                             border:
-  //                             Border.all(color: chipColor.withOpacity(.25)),
-  //                           ),
-  //                           child: Text(status,
-  //                               style: TextStyle(
-  //                                   fontSize: 12,
-  //                                   fontWeight: FontWeight.w700,
-  //                                   color: chipColor)),
-  //                         ),
-  //                         if (isCheckedOut) ...[
-  //                           const SizedBox(width: 6),
-  //                           Container(
-  //                             padding: const EdgeInsets.symmetric(
-  //                                 horizontal: 10, vertical: 4),
-  //                             decoration: BoxDecoration(
-  //                               color: Colors.green.withOpacity(.08),
-  //                               borderRadius: BorderRadius.circular(999),
-  //                               border: Border.all(
-  //                                   color: Colors.green.withOpacity(.25)),
-  //                             ),
-  //                             child: const Text('Checked out',
-  //                                 style: TextStyle(
-  //                                     fontSize: 12,
-  //                                     fontWeight: FontWeight.w700,
-  //                                     color: Colors.green)),
-  //                           ),
-  //                         ],
-  //                         if (isCancelled) ...[
-  //                           const SizedBox(width: 6),
-  //                           Container(
-  //                             padding: const EdgeInsets.symmetric(
-  //                                 horizontal: 10, vertical: 4),
-  //                             decoration: BoxDecoration(
-  //                               color: Colors.red.withOpacity(.08),
-  //                               borderRadius: BorderRadius.circular(999),
-  //                               border: Border.all(
-  //                                   color: Colors.red.withOpacity(.25)),
-  //                             ),
-  //                             child: const Text('cancelled',
-  //                                 style: TextStyle(
-  //                                     fontSize: 12,
-  //                                     fontWeight: FontWeight.w700,
-  //                                     color: Colors.red)),
-  //                           ),
-  //                         ],
-  //                       ]),
-  //                       const SizedBox(height: 6),
-  //                       Text(
-  //                         'Total: Rs $total • Paid: Rs $paid • Due: Rs $due',
-  //                         maxLines: 1,
-  //                         overflow: TextOverflow.ellipsis,
-  //                         style: TextStyle(
-  //                             fontSize: 13, color: Colors.brown.shade800),
-  //                       ),
-  //                     ],
-  //                   ),
-  //                 ),
-  //                 if (!_selectMode)
-  //                   PopupMenuButton<String>(
-  //                     onSelected: (v) async {
-  //                       if (v == 'set_payment') {
-  //                         final pm = await _selectPaymentMethodDialog(o);
-  //                         if (pm == null) return;
-  //                         final id = (o['_id'] ?? '').toString();
-  //                         try {
-  //                           final r = await http.put(
-  //                             Uri.parse('${AppConfig.apiBase}/orders/$id'),
-  //                             headers: _headers(),
-  //                             body: jsonEncode({
-  //                               'paymentMethod': pm,
-  //                               'paymentStatus': (pm['method']?.toString() == 'credit') ? 'Credit' : 'Paid',
-  //                             }),
-  //                           );
-  //                           if (r.statusCode ~/ 100 != 2) {
-  //                             throw Exception(_serverMsg('Set payment failed', r.statusCode, r.body));
-  //                           }
-  //                           if (mounted) {
-  //                             ref.refresh(ordersProvider);
-  //                             ScaffoldMessenger.of(context).showSnackBar(
-  //                               SnackBar(content: Text('Payment method saved: ${pm['method']}')),
-  //                             );
-  //                           }
-  //                         } catch (e) {
-  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save payment failed: $e')));
-  //                         }
-  //                       }
-  //
-  //                       if (v == 'edit') {
-  //                         if (isCheckedOut || isCancelled) {
-  //                           ScaffoldMessenger.of(context).showSnackBar(
-  //                             const SnackBar(content: Text('This order is already checked out or cancelled and can’t be edited.')),
-  //                           );
-  //                           return;
-  //                         }
-  //                         final changed = await Navigator.push<bool>(
-  //                           context,
-  //                           MaterialPageRoute(builder: (_) => OrderScreen(isEdit: true, order: o)),
-  //                         );
-  //                         if (changed == true && mounted)
-  //                           ref.refresh(ordersProvider);
-  //                       }
-  //
-  //                       if (v == 'print') await _printOrder(o);
-  //
-  //                       if (v == 'checkout') {
-  //                         if (isCancelled) {
-  //                           ScaffoldMessenger.of(context).showSnackBar(
-  //                             const SnackBar(content: Text('Cancelled order cannot be checked out.')),
-  //                           );
-  //                           return;
-  //                         }
-  //                         await _checkoutOrder(o);
-  //                       }
-  //
-  //                       if (v == 'mark_paid') {
-  //                         await _markPaid(o);
-  //                         if (mounted) ref.refresh(ordersProvider);
-  //                       }
-  //
-  //                       if (v == 'cancel') {
-  //                         if (isCancelled) {
-  //                           ScaffoldMessenger.of(context).showSnackBar(
-  //                             const SnackBar(content: Text('Order is already cancelled.')),
-  //                           );
-  //                           return;
-  //                         }
-  //                         try {
-  //                           await _cancelOrder(id);
-  //                           if (mounted) {
-  //                             ref.refresh(ordersProvider);
-  //                             setState(() {}); // rebuild card to show Cancelled badge
-  //                           }
-  //                         } catch (e) {
-  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cancel failed: $e')));
-  //                         }
-  //                       }
-  //
-  //                       if (v == 'delete') {
-  //                         try {
-  //                           await _deleteOrder(id);
-  //                           if (mounted) ref.refresh(ordersProvider);
-  //                         } catch (e) {
-  //                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
-  //                         }
-  //                       }
-  //
-  //                       if (v == 'view_invoice') await _viewInvoice(o);
-  //                       if (v == 'print_invoice') await _printInvoice(o);
-  //                     },
-  //                     itemBuilder: (_) {
-  //                       final items = <PopupMenuEntry<String>>[
-  //                         const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')),
-  //                         const PopupMenuItem(value: 'edit', child: Text('Edit')),
-  //                         const PopupMenuItem(value: 'print', child: Text('Print')),
-  //                       ];
-  //
-  //                       if (isCheckedOut) {
-  //                         items.add(const PopupMenuItem(value: 'view_invoice', child: Text('View Invoice')));
-  //                         items.add(const PopupMenuItem(value: 'print_invoice', child: Text('Print Invoice')));
-  //                       }
-  //
-  //                       if (!isCheckedOut && !isCancelled) items.add(const PopupMenuItem(value: 'checkout', child: Text('Checkout')));
-  //
-  //                       if (_canManage && !isCheckedOut && !isCancelled)
-  //                         items.add(const PopupMenuItem(
-  //                           value: 'cancel',
-  //                           child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
-  //                         ));
-  //
-  //                       if (_canManage && status != 'Paid' && !isCheckedOut && !isCancelled)
-  //                         items.add(const PopupMenuItem(value: 'mark_paid', child: Text('Mark Paid')));
-  //                       if (_canManage) items.add(const PopupMenuItem(value: 'delete', child: Text('Delete')));
-  //                       return items;
-  //                     },
-  //                   ),
-  //               ],
-  //             ),
-  //           ],
-  //         ),
-  //       ),
-  //     ),
-  //   );
   Widget _orderCard(Map<String, dynamic> o, int originalIndex, int totalLen) {
     final id = (o['_id'] ?? '').toString();
     final orderType = (o['orderType'] ?? 'DINE-IN').toString().toUpperCase();
@@ -1246,7 +900,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Order Type + Table/Area for DINE-IN
               Text(
                 orderType + (orderType == 'DINE-IN' ? ' • $table • $area' : ''),
                 style:
@@ -1366,7 +1019,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     );
   }
 
-// Handle popup menu actions
   void _handleOrderMenuAction(
       String action,
       Map<String, dynamic> order,
@@ -1411,7 +1063,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     }
   }
 
-// Build popup menu items
   List<PopupMenuEntry<String>> _buildPopupMenuItems(
       Map<String, dynamic> order,
       bool isCheckedOut,
@@ -1420,7 +1071,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final status = (order['paymentStatus'] ?? 'Paid').toString();
     final items = <PopupMenuEntry<String>>[];
 
-    // Always available
     items.add(const PopupMenuItem(value: 'set_payment', child: Text('Set Payment Method')));
     items.add(const PopupMenuItem(value: 'edit', child: Text('Edit')));
     items.add(const PopupMenuItem(value: 'print', child: Text('Print')));
@@ -1458,7 +1108,7 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     final ordersAsync = ref.watch(ordersProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Orders'),
+        title: const Text('Orders', style: TextStyle( color: Colors.white),),
         centerTitle: true,
         backgroundColor: const Color(0xFFFF7043),
         actions: [
@@ -1512,7 +1162,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
       ),
       body: Column(
         children: [
-          // Search + Nepali date filter
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
             child: Material(
@@ -1694,7 +1343,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
     try {
       final token = ref.read(authStateProvider)?.token ?? '';
 
-      // Convert JSON receipt -> OrderModel safely
       OrderModel _orderModelFromReceipt(Map<String, dynamic> r) {
         final items = ((r['items'] as List?) ?? []).map((m) {
           final map = m as Map<String, dynamic>;
@@ -1747,7 +1395,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
         );
       }
 
-      // 1️⃣ Try fetching existing receipt
       final getRes = await http.get(
         Uri.parse('${AppConfig.apiBase}/receipts/$orderId'),
         headers: {'Authorization': 'Bearer $token'},
@@ -1766,14 +1413,12 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
         return;
       }
 
-      // 2️⃣ Ask for VAT & Discount if no receipt exists
       final vatDiscount = await _askVatDiscountDialog(
         initialVat: (o['vatPercent'] is num) ? (o['vatPercent'] as num).toDouble() : 13.0,
         initialDiscount: (o['discountPercent'] is num) ? (o['discountPercent'] as num).toDouble() : 0.0,
       );
       if (vatDiscount == null) return;
 
-      // 3️⃣ Save receipt
       final savePayload = {
         'orderId': orderId,
         'vatPercent': vatDiscount['vat'] ?? 0.0,
@@ -1797,7 +1442,6 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
         return;
       }
 
-      // 4️⃣ Print saved receipt
       final savedJson = jsonDecode(postRes.body) as Map<String, dynamic>;
       final model = _orderModelFromReceipt(savedJson);
       await PrintService.printOrderReceipt(
