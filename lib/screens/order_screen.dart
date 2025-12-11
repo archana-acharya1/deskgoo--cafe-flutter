@@ -120,12 +120,14 @@ class _OrderLine {
   final String unitName;
   final double price;
   int quantity;
+  int? oldQuantity;
   _OrderLine({
     required this.itemId,
     required this.itemName,
     required this.unitName,
     required this.price,
     required this.quantity,
+    this.oldQuantity,
   });
 }
 
@@ -135,23 +137,19 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
   String _orderType = 'dine-in';
 
   final List<_OrderLine> _lines = [];
+  final List<_OrderLine> _removedLines = [];
 
   final _paidCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
   final _deliveryCtrl = TextEditingController();
-
-
   final _customerCtrl = TextEditingController(text: 'Guest');
   String _paymentStatus = 'Credit';
 
   final _searchCtrl = TextEditingController();
   String _query = '';
-
-  bool _submitting = false;
-
   Timer? _debounce;
-
   String? _selectedCategoryId;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -184,7 +182,14 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
         final price = (it['price'] as num?)?.toDouble() ?? 0.0;
         final qty = (it['quantity'] as num?)?.toInt() ?? 1;
         if (itemId.isNotEmpty && unit.isNotEmpty && price >= 0) {
-          _lines.add(_OrderLine(itemId: itemId, itemName: itemName, unitName: unit, price: price, quantity: qty));
+          _lines.add(_OrderLine(
+            itemId: itemId,
+            itemName: itemName,
+            unitName: unit,
+            price: price,
+            quantity: qty,
+            oldQuantity: qty,
+          ));
         }
       }
 
@@ -242,7 +247,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
     required List<Map<String, dynamic>> variants,
   }) async {
     if (variants.isEmpty) return null;
-
     int selectedIndex = 0;
     int qty = 1;
 
@@ -253,9 +257,7 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           String unitLabel(int i) {
             final u = (variants[i]['unit'] ?? '').toString();
             final p = (variants[i]['price'] as num?)?.toDouble() ?? 0.0;
-            return u.isEmpty
-                ? 'Rs ${p.toStringAsFixed(2)}'
-                : '$u — Rs ${p.toStringAsFixed(2)}';
+            return u.isEmpty ? 'Rs ${p.toStringAsFixed(2)}' : '$u — Rs ${p.toStringAsFixed(2)}';
           }
 
           return AlertDialog(
@@ -341,146 +343,31 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
 
   Future<void> _withOverlay(Future<void> Function() body) async {
     if (_submitting) return;
+
+    if (!mounted) return;
     setState(() => _submitting = true);
     LoadingOverlay.show(context);
+
     try {
       await body();
     } finally {
-      LoadingOverlay.hide();
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  Future<void> _createOrder() async {
-    if (_lines.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please add items to place an order.')));
-      return;
-    }
-
-    if (_orderType == 'dine-in' && (_tableId == null || _tableId!.isEmpty)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a table for dine-in order.')));
-      return;
-    }
-
-    if ((_paymentStatus == 'Credit' || _orderType != 'delivery') &&
-        (_customerCtrl.text.trim().isEmpty)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter customer name.')));
-      return;
-    }
-
-    if (_orderType == 'delivery' && _deliveryCtrl.text.trim().isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter delivery address.')));
-      return;
-    }
-
-    FocusScope.of(context).unfocus();
-
-    final items = _lines
-        .map((l) => {
-      'item': l.itemId,
-      'unitName': l.unitName,
-      'price': l.price,
-      'quantity': l.quantity,
-    })
-        .toList();
-
-    final payload = {
-      'orderType': _orderType,
-      if (_orderType == 'dine-in') 'tableId': _tableId,
-      'items': items,
-      'paymentStatus': _paymentStatus,
-      if (_paymentStatus == 'Credit' || _orderType != 'delivery')
-        'customerName': _customerCtrl.text.trim(),
-      'note': _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-      if (_orderType == 'delivery') 'deliveryAddress': _deliveryCtrl.text.trim(),
-    };
-
-    await _withOverlay(() async {
       try {
-        final r = await http
-            .post(
-          Uri.parse('${AppConfig.apiBase}/orders'),
-          headers: _headers(),
-          body: jsonEncode(payload),
-        )
-            .timeout(const Duration(seconds: 20));
-
-        if (!mounted) return;
-        if (r.statusCode ~/ 100 != 2) {
-          final msg = _serverMsg('Create failed', r.statusCode, r.body);
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(msg)));
-          return;
-        }
-
         LoadingOverlay.hide();
+      } catch (_) {}
 
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Order placed')));
+      if (!mounted) return;
 
-        String kotTableName;
-        if (_orderType == 'dine-in') {
-          final tables = await ref.read(orderTablesProvider.future);
-          final selectedTable =
-          tables.firstWhere((t) => t['_id'] == _tableId, orElse: () => {});
-          kotTableName = selectedTable['name'] ?? '-';
-          _areaName = (selectedTable['area'] is Map)
-              ? selectedTable['area']['name']
-              : null;
-        } else {
-          kotTableName = _orderType == 'takeaway' ? 'Takeaway' : 'Delivery';
-          _areaName = null;
-        }
-
-        final kotData = {
-          'tableName': kotTableName,
-          'areaName': _areaName ?? '-',
-          'orderNumber': DateTime.now().millisecondsSinceEpoch.toString(),
-          'type': 'Placed',
-          'timestamp': DateTime.now().toString(),
-          'items': _lines
-              .map((l) => {
-            'name': l.itemName,
-            'unitName': l.unitName,
-            'qty': l.quantity,
-          })
-              .toList(),
-        };
-
-        try {
-          await KotPrinter.printKot(kotData);
-        } catch (e) {
-          debugPrint('KOT print error (first): $e');
-        }
-
-      } on TimeoutException {
-        if (!mounted) return;
-        LoadingOverlay.hide();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Request timed out. Check network/API.')));
-      } catch (e) {
-        if (!mounted) return;
-        LoadingOverlay.hide();
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Network error: $e')));
-      }
-    });
+      setState(() => _submitting = false);
+    }
   }
+
 
   Future<void> _updateOrder() async {
     if (!widget.isEdit || widget.order == null) return;
-    if (_lines.isEmpty) {
+    if (_lines.isEmpty && _removedLines.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please add items to update the order.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please add items to update the order.')));
       return;
     }
 
@@ -502,7 +389,7 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
     FocusScope.of(context).unfocus();
 
     final id = (widget.order!['_id'] ?? '').toString();
-    final items = _lines
+    final itemsPayload = _lines
         .map((l) => {
       'item': l.itemId,
       'unitName': l.unitName,
@@ -514,11 +401,11 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
     final payload = {
       'orderType': _orderType,
       if (_orderType == 'dine-in') 'tableId': _tableId,
-      'items': items,
+      'items': itemsPayload,
       'paymentStatus': _paymentStatus,
       if (_paymentStatus == 'Credit' || _orderType != 'delivery')
         'customerName': _customerCtrl.text.trim(),
-      'note': _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+      'note': _noteCtrl.text.trim(), // always send note
     };
 
     await _withOverlay(() async {
@@ -539,8 +426,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           return;
         }
 
-        LoadingOverlay.hide();
-
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Order updated')));
 
@@ -550,25 +435,62 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           final selectedTable =
           tables.firstWhere((t) => t['_id'] == _tableId, orElse: () => {});
           kotTableName = selectedTable['name'] ?? '-';
-          _areaName = (selectedTable['area'] is Map) ? selectedTable['area']['name'] : null;
+          _areaName = (selectedTable['area'] is Map)
+              ? selectedTable['area']['name']
+              : null;
         } else {
           kotTableName = _orderType == 'takeaway' ? 'Takeaway' : 'Delivery';
           _areaName = null;
         }
 
+        final kotItems = <Map<String, dynamic>>[];
+
+        // Removed items
+        for (final r in _removedLines) {
+          kotItems.add({
+            'name': r.itemName,
+            'unitName': r.unitName,
+            'qty': r.oldQuantity ?? r.quantity,
+            'action': 'Cancelled',
+          });
+        }
+
+        for (final l in _lines) {
+          final oldQty = l.oldQuantity ?? 0;
+          if (oldQty == 0) {
+            kotItems.add({
+              'name': l.itemName,
+              'unitName': l.unitName,
+              'qty': l.quantity,
+              'action': 'Added',
+            });
+          } else if (l.quantity > oldQty) {
+            kotItems.add({
+              'name': l.itemName,
+              'unitName': l.unitName,
+              'qty': l.quantity - oldQty,
+              'action': 'Added',
+            });
+          } else if (l.quantity < oldQty) {
+            kotItems.add({
+              'name': l.itemName,
+              'unitName': l.unitName,
+              'qty': oldQty - l.quantity,
+              'action': 'Reduced',
+            });
+          }
+        }
+
         final kotData = {
           'tableName': kotTableName,
           'areaName': _areaName ?? '-',
-          'orderNumber': (widget.order?['orderNumber'] ?? DateTime.now().millisecondsSinceEpoch.toString()).toString(),
+          'orderNumber': (widget.order?['orderNumber'] ??
+              DateTime.now().millisecondsSinceEpoch.toString())
+              .toString(),
           'type': 'Updated',
           'timestamp': DateTime.now().toString(),
-          'items': _lines
-              .map((l) => {
-            'name': l.itemName,
-            'unitName': l.unitName,
-            'qty': l.quantity,
-          })
-              .toList(),
+          'note': _noteCtrl.text.trim(),
+          'items': kotItems,
         };
 
         try {
@@ -577,22 +499,19 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
           debugPrint('KOT print error (update): $e');
         }
 
-
-      } on TimeoutException {
-        if (!mounted) return;
-        LoadingOverlay.hide();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Request timed out. Check network/API.')));
+        _removedLines.clear();
+        for (final l in _lines) {
+          l.oldQuantity = l.quantity;
+        }
       } catch (e) {
         if (!mounted) return;
-        LoadingOverlay.hide();
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Network error: $e')));
       }
     });
   }
 
-  Future<bool> _confirmDeleteItem(String itemName) async {
+  Future<bool> _confirmDeleteItem(String itemName, _OrderLine line) async {
     final r = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -600,12 +519,173 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
         content: Text('Are you sure you want to remove "$itemName" from order?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          ElevatedButton(
+            onPressed: () {
+              if (!_removedLines.contains(line)) _removedLines.add(line);
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    return r ?? false;
+  }
+  Future<void> _createOrder() async {
+    if (_lines.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Please add items')));
+      return;
+    }
+
+    if (_submitting) return;
+
+    setState(() => _submitting = true);
+    LoadingOverlay.show(context);
+
+    try {
+      final payload = {
+        'orderType': _orderType,
+        if (_orderType == 'dine-in') 'tableId': _tableId,
+        'items': _lines
+            .map((l) => {'item': l.itemId, 'unitName': l.unitName, 'price': l.price, 'quantity': l.quantity})
+            .toList(),
+        'paymentStatus': _paymentStatus,
+        if (_paymentStatus == 'Credit' || _orderType != 'delivery')
+          'customerName': _customerCtrl.text.trim(),
+        'note': _noteCtrl.text.trim(),
+      };
+
+      final r = await http.post(
+        Uri.parse('${AppConfig.apiBase}/orders'),
+        headers: _headers(),
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 20));
+
+      if (!mounted) return;
+
+      if (r.statusCode ~/ 100 != 2) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Order creation failed (${r.statusCode})')));
+        return;
+      }
+
+      final data = jsonDecode(r.body);
+      final orderNumber = data['order']?['orderNumber']?.toString() ??
+          DateTime.now().millisecondsSinceEpoch.toString();
+
+      LoadingOverlay.hide();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Order created successfully')));
+
+      Navigator.of(context).pop(true);
+
+      unawaited(Future.microtask(() async {
+        try {
+          final kotItems = _lines
+              .map((l) => {'name': l.itemName, 'unitName': l.unitName, 'qty': l.quantity, 'action': 'Added'})
+              .toList();
+
+          final kotTableName = _orderType == 'dine-in'
+              ? (_areaName ?? _tableId ?? '-')
+              : (_orderType == 'takeaway' ? 'Takeaway' : 'Delivery');
+
+          final kotData = {
+            'tableName': kotTableName,
+            'areaName': _areaName ?? '-',
+            'orderNumber': orderNumber,
+            'type': 'New',
+            'timestamp': DateTime.now().toString(),
+            'note': _noteCtrl.text.trim(),
+            'items': kotItems,
+          };
+
+          await KotPrinter.printKot(kotData);
+        } catch (e) {
+          debugPrint('KOT print error (create): $e');
+        }
+      }));
+
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network error: $e')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+      LoadingOverlay.hide();
+    }
+  }
+
+  Future<void> _cancelOrder() async {
+    if (widget.order == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel Order'),
+        content: const Text('Are you sure you want to cancel the entire order?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
           ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
         ],
       ),
     );
-    return r ?? false;
+
+    if (confirm != true) return;
+
+    await _withOverlay(() async {
+      try {
+        final r = await http.patch(
+          Uri.parse('${AppConfig.apiBase}/orders/${widget.order!['_id']}/cancel'),
+          headers: _headers(),
+        ).timeout(const Duration(seconds: 20));
+
+        if (!mounted) return;
+
+        if (r.statusCode ~/ 100 != 2) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cancel failed: ${r.statusCode}')),
+          );
+          return;
+        }
+
+        final kotItems = _lines.map((l) => {
+          'name': l.itemName,
+          'unitName': l.unitName,
+          'qty': l.quantity,
+          'action': 'Cancelled',
+        }).toList();
+
+        final kotData = {
+          'tableName': _orderType == 'dine-in' ? (_areaName ?? _tableId ?? '-') : (_orderType == 'takeaway' ? 'Takeaway' : 'Delivery'),
+          'areaName': _areaName ?? '-',
+          'orderNumber': widget.order?['orderNumber']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          'type': 'Cancelled',
+          'timestamp': DateTime.now().toString(),
+          'note': _noteCtrl.text.trim(),
+          'items': kotItems,
+        };
+
+        try {
+          await KotPrinter.printKot(kotData);
+        } catch (e) {
+          debugPrint('KOT print error (cancel): $e');
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order cancelled')));
+        Navigator.of(context).pop(true);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network error: $e')));
+      }
+    });
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -801,47 +881,77 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
             if (_lines.isEmpty)
               const Text('No items selected.', style: TextStyle(color: Colors.black54)),
 
-            ..._lines.map((l) {
-              return ListTile(
-                title: Text('${l.itemName} (${l.unitName})', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('Rs ${l.price.toStringAsFixed(2)} × ${l.quantity} = Rs ${(l.price * l.quantity).toStringAsFixed(2)}'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle, color: Colors.red),
-                      onPressed: () {
-                        setState(() {
-                          if (l.quantity > 1) l.quantity--;
-                          else _lines.remove(l);
-                          if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
-                        });
-                      },
+            _lines.isEmpty
+                ? const Text('No items selected.', style: TextStyle(color: Colors.black54))
+                : Container(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _lines.length,
+                itemBuilder: (_, index) {
+                  final l = _lines[index];
+                  return ListTile(
+                    title: Text('${l.itemName} (${l.unitName})',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(
+                        'Rs ${l.price.toStringAsFixed(2)} × ${l.quantity} = Rs ${(l.price * l.quantity).toStringAsFixed(2)}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Decrement
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle, color: Colors.red),
+                          onPressed: () async {
+                            if (l.quantity > 1) {
+                              setState(() {
+                                l.quantity--;
+                                if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
+                              });
+                            } else {
+                              final ok = await _confirmDeleteItem(l.itemName, l);
+                              if (!ok) return;
+                              setState(() {
+                                if (!_removedLines.contains(l)) _removedLines.add(l);
+                                _lines.removeAt(index);
+                                if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
+                              });
+                            }
+                          },
+                        ),
+
+                        // Increment
+                        IconButton(
+                          icon: const Icon(Icons.add_circle, color: Colors.green),
+                          onPressed: () {
+                            setState(() {
+                              l.quantity++;
+                              if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
+                            });
+                          },
+                        ),
+
+                        // Delete
+                        IconButton(
+                          icon: const Icon(Icons.delete),
+                          onPressed: () async {
+                            final ok = await _confirmDeleteItem(l.itemName, l);
+                            if (!ok) return;
+                            setState(() {
+                              if (!_removedLines.contains(l)) _removedLines.add(l);
+                              _lines.removeAt(index);
+                              if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
+                            });
+                          },
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle, color: Colors.green),
-                      onPressed: () {
-                        setState(() {
-                          l.quantity++;
-                          if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
-                        });
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete),
-                      onPressed: () async {
-                        final ok = await _confirmDeleteItem(l.itemName);
-                        if (!ok) return;
-                        setState(() {
-                          _lines.remove(l);
-                          if (_paymentStatus == 'Paid') _paidCtrl.text = total.toStringAsFixed(2);
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
+                  );
+                },
+              ),
+            ),
+
+
+
 
             const SizedBox(height: 20),
 
@@ -925,53 +1035,6 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
-
-            ElevatedButton.icon(
-              icon: const Icon(Icons.print),
-              label: const Text('Print Receipt'),
-              style: ElevatedButton.styleFrom(backgroundColor: accentColor),
-              onPressed: () {
-                if (_lines.isEmpty) return;
-
-                final subtotal = total;
-                final discountAmount = 0.0;
-                final vatAmount = subtotal * 0.13;
-                final finalAmount = subtotal - discountAmount + vatAmount;
-
-                final order = OrderModel(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  tableName: _orderType == 'dine-in' ? (_areaName ?? _tableId ?? 'Unknown') : (_orderType == 'takeaway' ? 'Takeaway' : 'Delivery'),
-                  area: _areaName ?? '',
-                  items: _lines.map((l) => OrderItemModel(
-                    id: DateTime.now().millisecondsSinceEpoch.toString() + l.itemName,
-                    name: l.itemName,
-                    unitName: l.unitName,
-                    price: l.price,
-                    quantity: l.quantity,
-                  )).toList(),
-                  paymentStatus: _paymentStatus,
-                  paidAmount: paid,
-                  customerName: _customerCtrl.text.trim(),
-                  note: _noteCtrl.text.trim(),
-                  createdAt: DateTime.now(),
-                  restaurantName: 'Deskgao Cafe',
-                  vatPercent: 13.0,
-                  vatAmount: vatAmount,
-                  discountAmount: discountAmount,
-                  finalAmount: finalAmount,
-                );
-
-                PrintService.printOrderReceipt(
-                  order,
-                  context: context,
-                  vatAmount: vatAmount,
-                  discountAmount: discountAmount,
-                  finalAmount: finalAmount,
-                );
-              },
-            ),
-
             const SizedBox(height: 20),
 
             Row(
@@ -986,6 +1049,19 @@ class _OrderScreenState extends ConsumerState<OrderScreen> {
                 ),
               ],
             ),
+            if (widget.isEdit)
+              const SizedBox(height: 12),
+            if (widget.isEdit)
+              ElevatedButton.icon(
+                onPressed: _submitting ? null : _cancelOrder,
+                icon: const Icon(Icons.cancel, color: Colors.white,),
+                label: const Text('Cancel Order', style: const TextStyle(color: Colors.white),),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentColor,
+                  padding: const EdgeInsets.symmetric(vertical: 14,horizontal: 6),
+                ),
+              ),
+
 
             const SizedBox(height: 20),
           ],

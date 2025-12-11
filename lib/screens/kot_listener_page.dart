@@ -1,196 +1,160 @@
-import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import '../services/kot_printer.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
-class KotListenerPage extends StatefulWidget {
-  final String restaurantId;
-  const KotListenerPage({super.key, required this.restaurantId});
+class KotPrinter {
+  KotPrinter._();
 
-  @override
-  State<KotListenerPage> createState() => _KotListenerPageState();
-}
+  static Future<void> printKot(Map<String, dynamic> kot) async {
+    try {
+      final pdf = pw.Document();
 
-class _KotListenerPageState extends State<KotListenerPage> {
-  late IO.Socket socket;
-  List<Map<String, dynamic>> kotList = [];
+      final type = (kot['type'] ?? 'NEW').toString().toUpperCase();
+      final orderId = kot['orderNumber'] ?? kot['orderId'] ?? '';
+      final table = kot['tableName'] ?? kot['table'] ?? '-';
+      final areaName = kot['areaName'] ?? '-';
+      final timestamp = kot['timestamp'] ?? DateTime.now().toString();
+      final note = (kot['note'] ?? '').toString().trim();
+      final items = (kot['items'] ?? []) as List<dynamic>;
 
-  @override
-  void initState() {
-    super.initState();
-    _connectToSocket();
-  }
+      String headerTitle;
+      switch (type) {
+        case 'NEW':
+        case 'PLACED':
+          headerTitle = 'NEW ORDER';
+          break;
+        case 'UPDATE':
+        case 'UPDATED':
+          headerTitle = 'ORDER UPDATED';
+          break;
+        case 'VOID':
+        case 'VOIDED':
+          headerTitle = 'ORDER VOIDED';
+          break;
+        default:
+          headerTitle = 'ORDER';
+      }
 
-  void _connectToSocket() {
-    const serverUrl = 'http://202.51.3.168:3000';
-    socket = IO.io(
-      serverUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .disableAutoConnect()
-          .build(),
-    );
+      final addedItems = items.where((i) => (i['action'] ?? '').toString().toUpperCase() == 'ADDED').toList();
+      final updatedItems = items.where((i) => (i['action'] ?? '').toString().toUpperCase() == 'UPDATED').toList();
+      final reducedItems = items.where((i) => (i['action'] ?? '').toString().toUpperCase() == 'REDUCED').toList();
+      final cancelledItems = items.where((i) => (i['action'] ?? '').toString().toUpperCase() == 'CANCELLED').toList();
 
-    socket.connect();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.roll80,
+          build: (context) => pw.Padding(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Header
+                pw.Center(
+                  child: pw.Text(
+                    headerTitle,
+                    style: pw.TextStyle(
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: (type == 'NEW' || type == 'PLACED') ? PdfColors.red : PdfColors.black,
+                    ),
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Text('Table: $table', style: pw.TextStyle(fontSize: 12)),
+                pw.Text('Area: $areaName', style: pw.TextStyle(fontSize: 12)),
+                if (orderId.isNotEmpty)
+                  pw.Text('Order ID: $orderId', style: pw.TextStyle(fontSize: 12)),
+                pw.Text('Date & Time: $timestamp', style: pw.TextStyle(fontSize: 12)),
+                pw.SizedBox(height: 6),
+                pw.Center(
+                  child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
+                ),
 
-    socket.onConnect((_) {
-      print('✅ Connected to Socket.IO server');
-      socket.emit('joinRestaurant', widget.restaurantId);
-    });
-
-    // Debug all events — helps confirm what backend emits
-    socket.onAny((event, data) {
-      print('📡 Socket Event: $event — Data: $data');
-    });
-
-    // Listen for KOT-specific events
-    socket.on('kot:new', (data) => _handleKotEvent('NEW', data));
-    socket.on('kot:update', (data) => _handleKotEvent('UPDATE', data));
-    socket.on('kot:void', (data) => _handleKotEvent('VOID', data));
-
-    socket.onDisconnect((_) => print('❌ Disconnected from socket.io'));
-    socket.onError((err) => print('Socket error: $err'));
-  }
-
-  void _handleKotEvent(String type, dynamic data) {
-    print('📥 Received KOT [$type]: $data');
-
-    final kotData = {
-      'type': type,
-      'orderId': data['orderId'] ?? '',
-      'table': data['table'] ?? data['tableName'] ?? 'Unknown',
-      'orderNumber': data['orderNumber'] ?? '',
-      'timestamp': DateTime.now().toString(),
-      'items': data['items'] ?? [],
-    };
-
-    // Add to list (newest on top)
-    setState(() {
-      kotList.insert(0, kotData);
-    });
-
-    // Print KOT (type-aware)
-    KotPrinter.printKot(kotData);
-  }
-
-  @override
-  void dispose() {
-    socket.dispose();
-    super.dispose();
-  }
-
-  Color _typeColor(String type) {
-    switch (type) {
-      case 'NEW':
-        return Colors.green[700]!;
-      case 'UPDATE':
-        return Colors.orange[700]!;
-      case 'VOID':
-        return Colors.red[700]!;
-      default:
-        return Colors.grey[700]!;
-    }
-  }
-
-  String _typeLabel(String type) {
-    switch (type) {
-      case 'NEW':
-        return 'NEW ORDER';
-      case 'UPDATE':
-        return 'ORDER UPDATED';
-      case 'VOID':
-        return 'ORDER VOIDED';
-      default:
-        return 'ORDER';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('KOT Listener'),
-        centerTitle: true,
-      ),
-      body: kotList.isEmpty
-          ? const Center(child: Text('Waiting for KOT events...'))
-          : ListView.builder(
-        itemCount: kotList.length,
-        itemBuilder: (context, i) {
-          final kot = kotList[i];
-          final type = kot['type'];
-          final color = _typeColor(type);
-          final label = _typeLabel(type);
-
-          return Card(
-            margin: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                if (note.isNotEmpty)
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        type == 'NEW'
-                            ? Icons.add_circle
-                            : type == 'UPDATE'
-                            ? Icons.sync
-                            : Icons.cancel,
-                        color: color,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Table: ${kot["table"]}',
-                        style: TextStyle(
-                          color: color,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          color: color,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      pw.Text('NOTE: $note', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.Center(
+                        child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
                       ),
                     ],
                   ),
-                  const Divider(),
-                  ...List.generate((kot["items"] as List).length, (i) {
-                    final item = kot["items"][i];
-                    final itemName = item["name"] ?? "Unknown Item";
-                    final qty = item["quantity"] ?? 0;
-                    final unit = item["unitName"] ?? '';
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        "• $itemName ($unit) × $qty",
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                    );
+
+                if (addedItems.isNotEmpty)
+                  _buildItemSection('ADDED ITEMS', addedItems, (item) {
+                    final name = item['name'] ?? 'Unknown';
+                    final unit = item['unitName'] ?? '-';
+                    final qty = item['quantity'] ?? item['qty'] ?? 0;
+                    return '$name ($unit) x $qty';
                   }),
-                  const SizedBox(height: 4),
-                  Text(
-                    kot["timestamp"]
-                        .toString()
-                        .split(".")
-                        .first
-                        .replaceAll("T", " "),
-                    style: TextStyle(
-                        color: Colors.grey[600], fontSize: 13),
+
+                if (updatedItems.isNotEmpty)
+                  _buildItemSection('UPDATED ITEMS', updatedItems, (item) {
+                    final name = item['name'] ?? 'Unknown';
+                    final unit = item['unitName'] ?? '-';
+                    final oldQty = item['oldQuantity'] ?? 0;
+                    final qty = item['quantity'] ?? item['qty'] ?? 0;
+                    return '$name ($unit) $oldQty -> $qty';
+                  }),
+
+                if (reducedItems.isNotEmpty)
+                  _buildItemSection('REDUCED ITEMS', reducedItems, (item) {
+                    final name = item['name'] ?? 'Unknown';
+                    final unit = item['unitName'] ?? '-';
+                    final oldQty = item['oldQuantity'] ?? 0;
+                    final qty = item['quantity'] ?? item['qty'] ?? 0;
+                    return '$name ($unit) $oldQty -> $qty';
+                  }),
+
+                if (cancelledItems.isNotEmpty)
+                  _buildItemSection('CANCELLED ITEMS', cancelledItems, (item) {
+                    final name = item['name'] ?? 'Unknown';
+                    final unit = item['unitName'] ?? '-';
+                    final qty = item['quantity'] ?? 0;
+                    return '$name ($unit) x $qty';
+                  }, lineThrough: true),
+
+                pw.SizedBox(height: 8),
+                pw.Center(
+                  child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
+                ),
+                pw.Center(
+                  child: pw.Text(
+                    'KITCHEN ORDER TICKET',
+                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          );
-        },
-      ),
+          ),
+        ),
+      );
+
+      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    } catch (e, st) {
+      print('❌ KotPrinter.printKot error: $e\n$st');
+    }
+  }
+
+  static pw.Widget _buildItemSection(
+      String title, List items, String Function(Map<String, dynamic>) lineBuilder,
+      {bool lineThrough = false}) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Center(child: pw.Text(title, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold))),
+        ...items.map((item) => pw.Text(
+          lineBuilder(item),
+          style: pw.TextStyle(
+            fontSize: 12,
+            fontWeight: lineThrough ? pw.FontWeight.bold : pw.FontWeight.normal,
+            decoration: lineThrough ? pw.TextDecoration.lineThrough : null,
+          ),
+        )),
+        pw.Center(
+            child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12))),
+      ],
     );
   }
 }

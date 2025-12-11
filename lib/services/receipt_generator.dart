@@ -4,7 +4,6 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/order_model.dart';
 
 class ReceiptGenerator {
-  /// Generates PDF bytes for a receipt using exact amounts passed in
   static Future<Uint8List> generateReceipt(
       OrderModel order, {
         required double vatAmount,
