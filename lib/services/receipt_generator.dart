@@ -92,7 +92,6 @@ class ReceiptGenerator {
     final tableName = order.tableName;
     final areaName = order.area;
     final customer = order.customerName ?? '';
-    final note = order.note ?? '';
     final items = order.items;
 
     pw.Widget chip(String text) => pw.Container(
@@ -116,6 +115,7 @@ class ReceiptGenerator {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
+                // Header
                 pw.Center(
                   child: pw.Column(
                     children: [
@@ -137,31 +137,26 @@ class ReceiptGenerator {
                 pw.Text("Date: ${fmtDate(createdAt)}", style: small),
                 if (customer.isNotEmpty)
                   pw.Text("Customer: $customer", style: small),
-                if (note.isNotEmpty) pw.Text("Note: $note", style: small),
                 dashedLine(),
+
+                // Table headers
                 pw.Row(
                   children: [
                     pw.Expanded(flex: 6, child: pw.Text('Item', style: bold)),
-                    pw.Expanded(
-                        flex: 2,
-                        child: pw.Text('Qty',
-                            style: bold, textAlign: pw.TextAlign.right)),
-                    pw.Expanded(
-                        flex: 3,
-                        child: pw.Text('Price',
-                            style: bold, textAlign: pw.TextAlign.right)),
-                    pw.Expanded(
-                        flex: 3,
-                        child: pw.Text('Total',
-                            style: bold, textAlign: pw.TextAlign.right)),
+                    pw.Expanded(flex: 2, child: pw.Text('Qty', style: bold, textAlign: pw.TextAlign.right)),
+                    pw.Expanded(flex: 3, child: pw.Text('Price', style: bold, textAlign: pw.TextAlign.right)),
+                    pw.Expanded(flex: 3, child: pw.Text('Total', style: bold, textAlign: pw.TextAlign.right)),
                   ],
                 ),
                 dashedLine(),
+
+                // Items
                 ...items.map((it) {
                   final lineTotal = it.price * it.quantity;
                   return pw.Padding(
                     padding: const pw.EdgeInsets.symmetric(vertical: 1),
                     child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Expanded(
                           flex: 6,
@@ -176,31 +171,27 @@ class ReceiptGenerator {
                         ),
                         pw.Expanded(
                           flex: 2,
-                          child: pw.Text(it.quantity.toString(),
-                              style: base, textAlign: pw.TextAlign.right),
+                          child: pw.Text(it.quantity.toString(), style: base, textAlign: pw.TextAlign.right),
                         ),
                         pw.Expanded(
                           flex: 3,
-                          child: pw.Text(money(it.price),
-                              style: base, textAlign: pw.TextAlign.right),
+                          child: pw.Text(money(it.price), style: base, textAlign: pw.TextAlign.right),
                         ),
                         pw.Expanded(
                           flex: 3,
-                          child: pw.Text(money(lineTotal),
-                              style: base, textAlign: pw.TextAlign.right),
+                          child: pw.Text(money(lineTotal), style: base, textAlign: pw.TextAlign.right),
                         ),
                       ],
                     ),
                   );
                 }),
+
                 dashedLine(),
                 kvLine("Subtotal", "Rs ${money(subtotal)}"),
                 if (discountAmount > 0)
-                  kvLine("Discount (${discountPercent.toStringAsFixed(0)}%)",
-                      "-Rs ${money(discountAmount)}"),
+                  kvLine("Discount (${discountPercent.toStringAsFixed(0)}%)", "-Rs ${money(discountAmount)}"),
                 if (vatAmount > 0)
-                  kvLine("VAT (${vatPercent.toStringAsFixed(0)}%)",
-                      "Rs ${money(vatAmount)}"),
+                  kvLine("VAT (${vatPercent.toStringAsFixed(0)}%)", "Rs ${money(vatAmount)}"),
                 dashedLine(),
                 kvLine("Final Amount", "Rs ${money(finalAmount)}", strong: true),
                 pw.SizedBox(height: 4),
@@ -211,5 +202,6 @@ class ReceiptGenerator {
         ),
       ),
     );
+
   }
 }

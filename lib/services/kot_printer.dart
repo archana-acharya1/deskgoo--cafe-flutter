@@ -58,7 +58,7 @@ class KotPrinter {
                   pw.Text('Date & Time: $timestamp', style: pw.TextStyle(fontSize: 12)),
                   pw.SizedBox(height: 6),
                   pw.Center(
-                    child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
+                    child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12)),
                   ),
 
                   // Note
@@ -68,7 +68,7 @@ class KotPrinter {
                       children: [
                         pw.Text('NOTE: $note', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                         pw.Center(
-                          child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
+                          child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12)),
                         ),
                       ],
                     ),
@@ -126,7 +126,7 @@ class KotPrinter {
                   }).toList(),
 
                   pw.SizedBox(height: 8),
-                  pw.Center(child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12))),
+                  pw.Center(child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12))),
                   pw.Center(child: pw.Text('KITCHEN ORDER TICKET', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
                 ],
               ),
