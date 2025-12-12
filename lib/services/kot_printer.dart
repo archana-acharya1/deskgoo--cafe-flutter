@@ -23,21 +23,13 @@ class KotPrinter {
         case 'PLACED':
           headerTitle = '*** NEW ORDER ***';
           break;
-        case 'UPDATE':
-        case 'UPDATED':
-          headerTitle = '*** ORDER UPDATED ***';
-          break;
         case 'VOID':
         case 'VOIDED':
           headerTitle = '*** ORDER VOIDED ***';
           break;
         default:
-          headerTitle = '*** ORDER ***';
+          headerTitle = '*** KITCHEN ORDER ***';
       }
-
-      final addedItems = items.where((i) => (i['changeType'] ?? i['action'] ?? 'ADDED').toString().toUpperCase() == 'ADDED').toList();
-      final cancelledItems = items.where((i) => (i['changeType'] ?? i['action'] ?? '').toString().toUpperCase() == 'VOIDED' || (i['changeType'] ?? i['action'] ?? '').toString().toUpperCase() == 'CANCELLED').toList();
-      final updatedItems = items.where((i) => (i['changeType'] ?? i['action'] ?? '').toString().toUpperCase() == 'UPDATED').toList();
 
       pdf.addPage(
         pw.Page(
@@ -81,88 +73,61 @@ class KotPrinter {
                       ],
                     ),
 
-                  // ADDED ITEMS
-                  if (addedItems.isNotEmpty)
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Center(
-                          child: pw.Text(
-                            'ADDED ITEMS',
-                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
-                          ),
-                        ),
-                        ...addedItems.map((item) {
-                          final name = (item['name'] ?? 'Unknown').toString();
-                          final unit = (item['unitName'] ?? '-').toString();
-                          final qty = item['quantity'] ?? item['qty'] ?? 0;
-                          return pw.Text('$name ($unit) x $qty', style: pw.TextStyle(fontSize: 12));
-                        }).toList(),
-                        pw.Center(
-                          child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                    ),
+                  // Items
+                  ...items.map((item) {
+                    final name = (item['name'] ?? 'Unknown').toString();
+                    final unit = (item['unitName'] ?? '-').toString();
+                    final qty = item['quantity'] ?? item['qty'] ?? 0;
+                    final oldQty = item['oldQuantity'] ?? 0;
 
-// CANCELLED ITEMS
-                  if (cancelledItems.isNotEmpty)
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Center(
-                          child: pw.Text(
-                            'CANCELLED ITEMS',
-                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
-                          ),
-                        ),
-                        ...cancelledItems.map((item) {
-                          final name = (item['name'] ?? 'Unknown').toString();
-                          final unit = (item['unitName'] ?? '-').toString();
-                          final qty = item['quantity'] ?? item['qty'] ?? 0;
-                          return pw.Text(
-                            '$name ($unit) x $qty',
-                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.lineThrough),
-                          );
-                        }).toList(),
-                        pw.Center(
-                          child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                    ),
+                    // Determine change type robustly
+                    String changeType = (item['changeType'] ?? item['action'] ?? 'ADDED').toString().toUpperCase();
+                    if (changeType == 'UPDATED') {
+                      if (qty > oldQty) changeType = 'INCREASED';
+                      else if (qty < oldQty) changeType = 'REDUCED';
+                      else changeType = 'UNCHANGED';
+                    }
 
-// UPDATED ITEMS
-                  if (updatedItems.isNotEmpty)
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Center(
-                          child: pw.Text(
-                            'UPDATED ITEMS',
-                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
-                          ),
-                        ),
-                        ...updatedItems.map((item) {
-                          final name = (item['name'] ?? 'Unknown').toString();
-                          final unit = (item['unitName'] ?? '-').toString();
-                          final oldQty = item['oldQuantity'] ?? 0;
-                          final qty = item['quantity'] ?? item['qty'] ?? 0;
-                          return pw.Text(' $name ($unit) $oldQty -> $qty', style: pw.TextStyle(fontSize: 12));
-                        }).toList(),
-                        pw.Center(
-                          child: pw.Text('--------------------------------------------', style: pw.TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                    ),
+                    String label;
+                    pw.TextStyle style = pw.TextStyle(fontSize: 12);
 
+                    switch (changeType) {
+                      case 'ADDED':
+                        label = 'ADDED';
+                        break;
+                      case 'VOIDED':
+                      case 'CANCELLED':
+                        label = 'CANCELLED';
+                        style = pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.lineThrough);
+                        break;
+                      case 'REDUCED':
+                        label = 'REDUCED';
+                        break;
+                      case 'INCREASED':
+                        label = 'INCREASED';
+                        break;
+                      case 'UNCHANGED':
+                        label = 'UNCHANGED';
+                        break;
+                      default:
+                        label = 'UNKNOWN';
+                    }
+
+                    String line;
+                    if (changeType == 'REDUCED') {
+                      line = '$label : $name ($unit) ${oldQty - qty}';
+                    } else if (changeType == 'INCREASED') {
+                      line = '$label : $name ($unit) +${qty - oldQty}';
+                    } else {
+                      line = '$label : $name ($unit) x $qty';
+                    }
+
+                    return pw.Text(line, style: style);
+                  }).toList(),
 
                   pw.SizedBox(height: 8),
-                  pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12)),
-                  pw.Center(
-                    child: pw.Text(
-                      'KITCHEN ORDER TICKET',
-                      style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
-                    ),
-                  ),
+                  pw.Center(child: pw.Text('---------------------------------------------', style: pw.TextStyle(fontSize: 12))),
+                  pw.Center(child: pw.Text('KITCHEN ORDER TICKET', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
                 ],
               ),
             );
