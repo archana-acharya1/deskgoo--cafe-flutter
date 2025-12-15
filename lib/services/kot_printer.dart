@@ -61,17 +61,7 @@ class KotPrinter {
                     child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12)),
                   ),
 
-                  // Note
-                  if (note.isNotEmpty)
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text('NOTE: $note', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                        pw.Center(
-                          child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                    ),
+
 
                   // Items
                   ...items.map((item) {
@@ -127,6 +117,19 @@ class KotPrinter {
 
                   pw.SizedBox(height: 8),
                   pw.Center(child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12))),
+
+                  // Note
+                  if (note.isNotEmpty)
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('NOTE: $note', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                        pw.Center(
+                          child: pw.Text('--------------------------------', style: pw.TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+
                   pw.Center(child: pw.Text('KITCHEN ORDER TICKET', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
                 ],
               ),
